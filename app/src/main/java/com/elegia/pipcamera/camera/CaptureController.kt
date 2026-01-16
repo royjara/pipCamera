@@ -2,18 +2,25 @@ package com.elegia.pipcamera.camera
 
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalCamera2Interop::class)
 object CaptureController {
     private val _captureRequests = MutableSharedFlow<CaptureRequestOptions>()
     val captureRequests: SharedFlow<CaptureRequestOptions> = _captureRequests
+
+    private val _currentMetering = MutableStateFlow<CameraMetering?>(null)
+    val currentMetering: StateFlow<CameraMetering?> = _currentMetering
 
     private var currentSession: CameraCaptureSession? = null
     private var camera2Control: Camera2CameraControl? = null
@@ -31,6 +38,20 @@ object CaptureController {
 
         override fun onClosed(session: CameraCaptureSession) {
             currentSession = null
+        }
+    }
+
+    val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+            session: CameraCaptureSession,
+            request: CaptureRequest,
+            result: TotalCaptureResult
+        ) {
+            super.onCaptureCompleted(session, request, result)
+            // Update metering info from capture result
+            scope.launch {
+                _currentMetering.value = CameraMetering.from(result)
+            }
         }
     }
 

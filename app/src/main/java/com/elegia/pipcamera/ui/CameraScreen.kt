@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.elegia.pipcamera.camera.rememberCameraManager
+import com.elegia.pipcamera.camera.CaptureController
 
 @Composable
 fun CameraScreen(isPiPMode: Boolean = false) {
@@ -26,6 +27,7 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
     val cameraManager = rememberCameraManager()
 
     val capabilities by cameraManager.capabilities.collectAsState()
+    val metering by CaptureController.currentMetering.collectAsState()
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -63,9 +65,17 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
             modifier = Modifier.fillMaxSize()
         )
 
+        // Metering info overlay
+        MeteringInfoOverlay(
+            metering = metering,
+            capabilities = capabilities,
+            isPiPMode = isPiPMode
+        )
+
         // Camera controls overlay
         CameraControls(
             capabilities = capabilities,
+            currentMetering = metering,
             isPiPMode = isPiPMode
         )
     }

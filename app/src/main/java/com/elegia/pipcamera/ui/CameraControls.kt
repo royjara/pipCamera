@@ -14,12 +14,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.elegia.pipcamera.camera.CameraCapabilities
+import com.elegia.pipcamera.camera.CameraMetering
 import com.elegia.pipcamera.camera.CaptureController
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraControls(
     capabilities: CameraCapabilities?,
+    currentMetering: CameraMetering?,
     isPiPMode: Boolean = false
 ) {
     var showDialog by remember { mutableStateOf(false) }
@@ -45,6 +47,7 @@ fun CameraControls(
         if (showDialog) {
             CameraSettingsDialog(
                 capabilities = capabilities,
+                currentMetering = currentMetering,
                 onDismiss = { showDialog = false }
             )
         }
@@ -54,6 +57,7 @@ fun CameraControls(
 @Composable
 private fun CameraSettingsDialog(
     capabilities: CameraCapabilities,
+    currentMetering: CameraMetering?,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -74,7 +78,7 @@ private fun CameraSettingsDialog(
                 )
 
                 // Focus Mode Control
-                FocusModeControl(capabilities)
+                FocusModeControl(capabilities, currentMetering)
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -91,12 +95,15 @@ private fun CameraSettingsDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FocusModeControl(capabilities: CameraCapabilities) {
-    var selectedFocusMode by remember {
-        mutableIntStateOf(
-            capabilities.supportedFocusModes.firstOrNull()
-                ?: CaptureRequest.CONTROL_AF_MODE_AUTO
-        )
+private fun FocusModeControl(
+    capabilities: CameraCapabilities,
+    currentMetering: CameraMetering?
+) {
+    // Use actual current focus mode from capture results, with fallback to first supported mode
+    val actualFocusMode = currentMetering?.focusMode ?: capabilities.supportedFocusModes.firstOrNull() ?: CaptureRequest.CONTROL_AF_MODE_AUTO
+
+    var selectedFocusMode by remember(actualFocusMode) {
+        mutableIntStateOf(actualFocusMode)
     }
     var expanded by remember { mutableStateOf(false) }
 

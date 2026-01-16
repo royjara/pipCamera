@@ -5,6 +5,7 @@ import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import android.hardware.camera2.CaptureRequest
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -49,6 +50,7 @@ class CameraManager {
                 .also { builder ->
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 }
                 .build()
                 .also { preview ->
