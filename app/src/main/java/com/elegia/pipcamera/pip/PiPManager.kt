@@ -35,8 +35,8 @@ class PiPManager(private val activity: Activity) {
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createPiPParams(): PictureInPictureParams {
-        // Camera aspect ratio is typically 4:3 or 16:9
-        val aspectRatio = Rational(16, 9)
+        // Use square aspect ratio for circular crop
+        val aspectRatio = Rational(1, 1)
 
         return PictureInPictureParams.Builder()
             .setAspectRatio(aspectRatio)

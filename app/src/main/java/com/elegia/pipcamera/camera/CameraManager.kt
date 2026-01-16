@@ -2,6 +2,7 @@ package com.elegia.pipcamera.camera
 
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
@@ -26,9 +27,13 @@ class CameraManager {
     private val _isPiPMode = MutableStateFlow(false)
     val isPiPMode: StateFlow<Boolean> = _isPiPMode
 
+    private val _capabilities = MutableStateFlow<CameraCapabilities?>(null)
+    val capabilities: StateFlow<CameraCapabilities?> = _capabilities
+
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var camera2Control: Camera2CameraControl? = null
+    private var camera2Info: Camera2CameraInfo? = null
 
     fun initializeCamera(
         lifecycleOwner: LifecycleOwner,
@@ -60,10 +65,14 @@ class CameraManager {
                     preview
                 )
 
-                // Get Camera2 control for interop
+                // Get Camera2 control and info for interop
                 camera?.let {
                     camera2Control = Camera2CameraControl.from(it.cameraControl)
+                    camera2Info = Camera2CameraInfo.from(it.cameraInfo)
                     CaptureController.setCamera2Control(camera2Control)
+
+                    // Query camera capabilities
+                    _capabilities.value = CameraCapabilities.from(camera2Info)
                 }
 
                 _isReady.value = true
