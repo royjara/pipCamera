@@ -72,8 +72,8 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
             isPiPMode = isPiPMode
         )
 
-        // Camera controls overlay
-        CameraControls(
+        // Camera toolbar
+        CameraToolbar(
             capabilities = capabilities,
             currentMetering = metering,
             isPiPMode = isPiPMode

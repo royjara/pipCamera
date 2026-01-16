@@ -51,6 +51,7 @@ class CameraManager {
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
                         .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                        .setSessionCaptureCallback(CaptureController.captureCallback)
                 }
                 .build()
                 .also { preview ->

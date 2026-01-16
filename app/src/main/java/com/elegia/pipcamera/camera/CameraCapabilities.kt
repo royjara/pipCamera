@@ -13,43 +13,100 @@ data class CameraCapabilities(
     val supportedExposureCompensation: IntRange?,
     val supportedFocusModes: List<Int>,
     val supportedFlashModes: List<Int>,
-    val supportedWhiteBalance: List<Int>
+    val supportedWhiteBalance: List<Int>,
+    val availableApertures: FloatArray?,
+    val availableFocalLengths: FloatArray?,
+    val exposureTimeRange: android.util.Range<Long>?,
+    val availableSceneModes: IntArray?,
+    val availableEffects: IntArray?,
+    val availableAntiBandingModes: IntArray?,
+    val availableColorCorrectionModes: IntArray?
 ) {
     companion object {
         fun from(camera2CameraInfo: Camera2CameraInfo?): CameraCapabilities {
-            val characteristics = camera2CameraInfo?.getCameraCharacteristic(CameraCharacteristics.LENS_FACING)
-                ?.let { camera2CameraInfo }
+            if (camera2CameraInfo == null) {
+                return CameraCapabilities(
+                    supportedISO = null,
+                    supportedExposureCompensation = null,
+                    supportedFocusModes = emptyList(),
+                    supportedFlashModes = emptyList(),
+                    supportedWhiteBalance = emptyList(),
+                    availableApertures = null,
+                    availableFocalLengths = null,
+                    exposureTimeRange = null,
+                    availableSceneModes = null,
+                    availableEffects = null,
+                    availableAntiBandingModes = null,
+                    availableColorCorrectionModes = null
+                )
+            }
 
-            val isoRange = camera2CameraInfo?.getCameraCharacteristic(
+            val isoRange = camera2CameraInfo.getCameraCharacteristic(
                 CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE
             )?.let { range ->
                 IntRange(range.lower, range.upper)
             }
 
-            val exposureRange = camera2CameraInfo?.getCameraCharacteristic(
+            val exposureRange = camera2CameraInfo.getCameraCharacteristic(
                 CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE
             )?.let { range ->
                 IntRange(range.lower, range.upper)
             }
 
-            val focusModes = camera2CameraInfo?.getCameraCharacteristic(
+            val focusModes = camera2CameraInfo.getCameraCharacteristic(
                 CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES
             )?.toList() ?: emptyList()
 
-            val flashModes = camera2CameraInfo?.getCameraCharacteristic(
+            val flashModes = camera2CameraInfo.getCameraCharacteristic(
                 CameraCharacteristics.CONTROL_AE_AVAILABLE_MODES
             )?.toList() ?: emptyList()
 
-            val whiteBalanceModes = camera2CameraInfo?.getCameraCharacteristic(
+            val whiteBalanceModes = camera2CameraInfo.getCameraCharacteristic(
                 CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES
             )?.toList() ?: emptyList()
+
+            // Query additional camera characteristics
+            val apertures = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES
+            )
+
+            val focalLengths = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS
+            )
+
+            val exposureTimeRange = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE
+            )
+
+            val sceneModes = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.CONTROL_AVAILABLE_SCENE_MODES
+            )
+
+            val effects = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.CONTROL_AVAILABLE_EFFECTS
+            )
+
+            val antiBandingModes = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.CONTROL_AE_AVAILABLE_ANTIBANDING_MODES
+            )
+
+            val colorCorrectionModes = camera2CameraInfo.getCameraCharacteristic(
+                CameraCharacteristics.COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES
+            )
 
             return CameraCapabilities(
                 supportedISO = isoRange,
                 supportedExposureCompensation = exposureRange,
                 supportedFocusModes = focusModes,
                 supportedFlashModes = flashModes,
-                supportedWhiteBalance = whiteBalanceModes
+                supportedWhiteBalance = whiteBalanceModes,
+                availableApertures = apertures,
+                availableFocalLengths = focalLengths,
+                exposureTimeRange = exposureTimeRange,
+                availableSceneModes = sceneModes,
+                availableEffects = effects,
+                availableAntiBandingModes = antiBandingModes,
+                availableColorCorrectionModes = colorCorrectionModes
             )
         }
     }

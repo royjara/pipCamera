@@ -30,6 +30,8 @@ object CaptureController {
     val sessionStateCallback = object : CameraCaptureSession.StateCallback() {
         override fun onConfigured(session: CameraCaptureSession) {
             currentSession = session
+            // Setup initial capture request from preview template
+            setupInitialCaptureRequest(session)
         }
 
         override fun onConfigureFailed(session: CameraCaptureSession) {
@@ -38,6 +40,33 @@ object CaptureController {
 
         override fun onClosed(session: CameraCaptureSession) {
             currentSession = null
+        }
+    }
+
+    private fun setupInitialCaptureRequest(session: CameraCaptureSession) {
+        try {
+            // Create a capture request based on preview template
+            val captureRequestBuilder = session.device.createCaptureRequest(
+                android.hardware.camera2.CameraDevice.TEMPLATE_PREVIEW
+            )
+
+            // Set basic parameters for preview
+            captureRequestBuilder.set(
+                CaptureRequest.CONTROL_MODE,
+                CaptureRequest.CONTROL_MODE_AUTO
+            )
+            captureRequestBuilder.set(
+                CaptureRequest.CONTROL_AF_MODE,
+                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+            )
+            captureRequestBuilder.set(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_ON
+            )
+
+            // Note: Surface targets will be set by CameraX, we just setup the template parameters
+        } catch (e: Exception) {
+            // Handle error
         }
     }
 
