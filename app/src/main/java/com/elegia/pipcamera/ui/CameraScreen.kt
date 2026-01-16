@@ -11,21 +11,25 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.elegia.pipcamera.camera.rememberCameraManager
 
 @Composable
-fun CameraScreen() {
+fun CameraScreen(isPiPMode: Boolean = false) {
     PermissionHandler {
-        CameraPreview()
+        CameraPreview(isPiPMode = isPiPMode)
     }
 }
 
 @Composable
-private fun CameraPreview() {
+private fun CameraPreview(isPiPMode: Boolean = false) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraManager = rememberCameraManager()
 
     val previewView = remember {
         PreviewView(context).apply {
-            scaleType = PreviewView.ScaleType.FILL_CENTER
+            scaleType = if (isPiPMode) {
+                PreviewView.ScaleType.FIT_CENTER
+            } else {
+                PreviewView.ScaleType.FILL_CENTER
+            }
         }
     }
 
@@ -34,6 +38,15 @@ private fun CameraPreview() {
             lifecycleOwner = lifecycleOwner,
             previewView = previewView
         )
+    }
+
+    // Update preview scale type when PiP mode changes
+    LaunchedEffect(isPiPMode) {
+        previewView.scaleType = if (isPiPMode) {
+            PreviewView.ScaleType.FIT_CENTER
+        } else {
+            PreviewView.ScaleType.FILL_CENTER
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

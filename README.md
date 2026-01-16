@@ -13,6 +13,9 @@ Minimal CameraX + Compose application with Camera2 interop for capture request s
 - Camera2 interop for custom capture request streams
 - MVVM pattern with Compose State
 - Flow-based capture request streaming
+- Picture-in-Picture (PiP) mode support
+- Automatic PiP entry on home button press
+- Camera continuity during PiP transitions
 
 ## Prompt Instructions
 - Use simplest abstraction possible

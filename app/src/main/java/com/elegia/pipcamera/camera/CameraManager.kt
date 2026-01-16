@@ -23,6 +23,9 @@ class CameraManager {
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady
 
+    private val _isPiPMode = MutableStateFlow(false)
+    val isPiPMode: StateFlow<Boolean> = _isPiPMode
+
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var camera2Control: Camera2CameraControl? = null
@@ -72,6 +75,10 @@ class CameraManager {
                 // Handle camera binding failure
             }
         }, ContextCompat.getMainExecutor(previewView.context))
+    }
+
+    fun updatePiPMode(isPiP: Boolean) {
+        _isPiPMode.value = isPiP
     }
 
     fun shutdown() {
