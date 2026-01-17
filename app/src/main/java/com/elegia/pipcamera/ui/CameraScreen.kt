@@ -78,5 +78,57 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
             currentMetering = metering,
             isPiPMode = isPiPMode
         )
+
+        // Surface toolbar
+        SurfaceToolbar(
+            isPiPMode = isPiPMode,
+            onSurfaceToggle = { surfaceId, enabled ->
+                when (surfaceId) {
+                    "analysis" -> {
+                        if (enabled) {
+                            cameraManager.enableAnalysis()
+                        } else {
+                            cameraManager.disableAnalysis()
+                        }
+                    }
+                    "snapshot" -> {
+                        if (enabled) {
+                            cameraManager.enableSnapshot()
+                        } else {
+                            cameraManager.disableSnapshot()
+                        }
+                    }
+                    "video" -> {
+                        if (enabled) {
+                            cameraManager.enableVideo()
+                        } else {
+                            cameraManager.disableVideo()
+                        }
+                    }
+                    "audio" -> {
+                        if (enabled) {
+                            cameraManager.enableAudio()
+                        } else {
+                            cameraManager.disableAudio()
+                        }
+                    }
+                }
+            },
+            onSnapshotClick = {
+                cameraManager.takeSnapshot()
+            },
+            onVideoToggle = {
+                if (cameraManager.isRecording.value) {
+                    cameraManager.stopVideoRecording()
+                } else {
+                    cameraManager.startVideoRecording()
+                }
+            },
+            isRecording = cameraManager.isRecording.collectAsState().value,
+            isSnapshotEnabled = cameraManager.isSnapshotEnabled.collectAsState().value,
+            isVideoEnabled = cameraManager.isVideoEnabled.collectAsState().value,
+            isAnalysisEnabled = cameraManager.isAnalysisEnabled.collectAsState().value,
+            isAudioEnabled = cameraManager.isAudioEnabled.collectAsState().value
+        )
     }
 }

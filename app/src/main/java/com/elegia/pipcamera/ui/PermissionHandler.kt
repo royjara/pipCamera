@@ -19,31 +19,33 @@ import androidx.core.content.PermissionChecker
 
 @Composable
 fun PermissionHandler(
-    permission: String = Manifest.permission.CAMERA,
+    permissions: Array<String> = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO),
     onPermissionGranted: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    var hasPermission by remember {
+    var hasAllPermissions by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                permission
-            ) == PermissionChecker.PERMISSION_GRANTED
+            permissions.all { permission ->
+                ContextCompat.checkSelfPermission(
+                    context,
+                    permission
+                ) == PermissionChecker.PERMISSION_GRANTED
+            }
         )
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasPermission = isGranted
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionResults ->
+        hasAllPermissions = permissionResults.all { it.value }
     }
 
-    if (hasPermission) {
+    if (hasAllPermissions) {
         onPermissionGranted()
     } else {
         PermissionDeniedContent(
             onRequestPermission = {
-                permissionLauncher.launch(permission)
+                permissionLauncher.launch(permissions)
             }
         )
     }
@@ -61,7 +63,7 @@ private fun PermissionDeniedContent(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Camera permission required",
+                text = "Camera and audio permissions required",
                 modifier = Modifier.padding(16.dp)
             )
             Button(onClick = onRequestPermission) {

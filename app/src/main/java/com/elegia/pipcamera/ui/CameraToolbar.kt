@@ -3,6 +3,7 @@ package com.elegia.pipcamera.ui
 import android.hardware.camera2.CaptureRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -51,14 +52,16 @@ fun CameraToolbar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left button - Menu
-                    Box {
+                    Box(modifier = Modifier.weight(1f)) {
                         FloatingActionButton(
                             onClick = { showMenuPopup = !showMenuPopup },
-                            modifier = Modifier.size(48.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
                             containerColor = MaterialTheme.colorScheme.secondary
                         ) {
                             Icon(
@@ -78,23 +81,12 @@ fun CameraToolbar(
                         }
                     }
 
-                    // Middle button - Focus
-                    FloatingActionButton(
-                        onClick = { /* TODO: Focus controls */ },
-                        modifier = Modifier.size(48.dp),
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Focus",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
                     // Right button - Debug toggle
                     FloatingActionButton(
                         onClick = { showDebugScreen = !showDebugScreen },
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
                         containerColor = if (showDebugScreen)
                             MaterialTheme.colorScheme.tertiary
                         else
@@ -135,52 +127,64 @@ private fun DebugScreenOverlay(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.5f)
-                .alpha(0.8f)
+                .fillMaxHeight(0.7f)
                 .background(
-                    Color.Black.copy(alpha = 0.8f),
+                    Color.Black.copy(alpha = 0.9f),
                     RoundedCornerShape(16.dp)
                 )
-                .padding(16.dp)
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Fixed Header
                 Text(
                     text = "DEBUG - Capture Results",
                     style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 16.dp)
                 )
 
-                currentMetering?.let { metering ->
-                    DebugItem("Focus Mode", metering.focusMode?.toString() ?: "N/A")
-                    DebugItem("Focus State", metering.getFocusStateDisplayName())
-                    DebugItem("Exposure Time", metering.getExposureTimeDisplayValue())
-                    DebugItem("ISO", metering.getISODisplayValue())
-                    DebugItem("Aperture", metering.getApertureDisplayValue())
-                    DebugItem("Focus Distance",
-                        metering.focusDistance?.let { "%.2f".format(it) } ?: "N/A"
-                    )
-                    DebugItem("Exposure Comp",
-                        metering.exposureCompensation?.toString() ?: "N/A"
-                    )
-                    DebugItem("White Balance",
-                        metering.whiteBalanceMode?.toString() ?: "N/A"
-                    )
-                } ?: run {
-                    Text(
-                        text = "No capture result data available",
-                        color = Color.Gray,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                // Scrollable Content
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    currentMetering?.let { metering ->
+                        // Show all dynamic capture keys from reflection
+                        metering.allCaptureKeys.forEach { (keyName, value) ->
+                            item {
+                                DebugItem(keyName, value)
+                            }
+                        }
+
+                        // If no keys found, show fallback message
+                        if (metering.allCaptureKeys.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "No capture result keys available",
+                                    color = Color.Gray,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    } ?: item {
+                        Text(
+                            text = "No capture result data available",
+                            color = Color.Gray,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
-
+                // Fixed Footer
                 Button(
                     onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 16.dp)
                 ) {
                     Text("Close Debug")
                 }
