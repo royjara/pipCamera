@@ -1,17 +1,27 @@
 package com.elegia.pipcamera.ui
 
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.elegia.pipcamera.camera.rememberCameraManager
 import com.elegia.pipcamera.camera.CaptureController
+import android.os.Build
+import androidx.annotation.RequiresApi
 
 @Composable
 fun CameraScreen(isPiPMode: Boolean = false) {
@@ -112,6 +122,13 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
                             cameraManager.disableAudio()
                         }
                     }
+                    "gl" -> {
+                        if (enabled) {
+                            cameraManager.enableGL()
+                        } else {
+                            cameraManager.disableGL()
+                        }
+                    }
                 }
             },
             onSnapshotClick = {
@@ -124,11 +141,25 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
                     cameraManager.startVideoRecording()
                 }
             },
+            onRotateClockwise = {
+                cameraManager.rotateFrameClockwise()
+            },
+            onRotateCounterclockwise = {
+                cameraManager.rotateFrameCounterclockwise()
+            },
             isRecording = cameraManager.isRecording.collectAsState().value,
             isSnapshotEnabled = cameraManager.isSnapshotEnabled.collectAsState().value,
             isVideoEnabled = cameraManager.isVideoEnabled.collectAsState().value,
             isAnalysisEnabled = cameraManager.isAnalysisEnabled.collectAsState().value,
-            isAudioEnabled = cameraManager.isAudioEnabled.collectAsState().value
+            isAudioEnabled = cameraManager.isAudioEnabled.collectAsState().value,
+            isGLEnabled = cameraManager.isGLEnabled.collectAsState().value
         )
+
+        // AGSL Shader overlay (when enabled) - smaller centered window
+        if (cameraManager.isGLEnabled.collectAsState().value && !isPiPMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            AGSLCameraOverlay(
+                isEnabled = true
+            )
+        }
     }
 }

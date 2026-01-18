@@ -13,6 +13,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCase
+import androidx.camera.core.SurfaceRequest
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.Recorder
@@ -31,8 +32,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.media.ImageReader
 import android.util.Log
+import android.util.Size
+import android.view.Surface
 import android.widget.Toast
 import androidx.camera.core.ImageCaptureException
 import androidx.core.util.Consumer
@@ -40,6 +44,8 @@ import java.io.File
 import java.util.concurrent.Executors
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 
 @OptIn(ExperimentalCamera2Interop::class)
 class CameraManager {
@@ -81,6 +87,13 @@ class CameraManager {
 
     private val _isAudioEnabled = MutableStateFlow(true)
     val isAudioEnabled: StateFlow<Boolean> = _isAudioEnabled
+
+    private val _isGLEnabled = MutableStateFlow(false)
+    val isGLEnabled: StateFlow<Boolean> = _isGLEnabled
+
+    // Frame rotation for ImageAnalysis display
+    private val _frameRotation = MutableStateFlow(0) // 0, 90, 180, 270 degrees
+    val frameRotation: StateFlow<Int> = _frameRotation
 
     private var surfaceInstanceIndex = 0
     private fun getNextSurfaceIndex() = ++surfaceInstanceIndex
@@ -157,6 +170,8 @@ class CameraManager {
             Log.d(TAG, "Surface_ImageAnalysis: Pre-allocating surface - camid=back, usecase=ImageAnalysis, index=$imageAnalysisIndex")
 
             imageAnalysis = ImageAnalysis.Builder()
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // Drop frames if processing is slow - optimal for real-time processing
                 .also { builder ->
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
@@ -203,6 +218,9 @@ class CameraManager {
                 }
                 .build()
             Log.d(TAG, "Surface_VideoCapture: VideoCapture pre-allocated - index=$videoCaptureIndex")
+
+            // GL rendering will use ImageAnalysis instead of separate Preview
+            Log.d(TAG, "Surface_GL: GL rendering will be handled through ImageAnalysis pipeline")
         }
     }
 
@@ -298,6 +316,46 @@ class CameraManager {
         _isAudioEnabled.value = false
     }
 
+    fun enableGL() {
+        if (_isGLEnabled.value) {
+            Log.w(TAG, "enableGL: Already enabled")
+            return
+        }
+
+        Log.d(TAG, "enableGL: Enabling GL surface")
+        _isGLEnabled.value = true
+        rebindCamera()
+        Log.d(TAG, "enableGL: GL surface enabled successfully")
+    }
+
+    fun disableGL() {
+        if (!_isGLEnabled.value) {
+            Log.w(TAG, "disableGL: Already disabled")
+            return
+        }
+
+        Log.d(TAG, "disableGL: Disabling GL surface")
+        _isGLEnabled.value = false
+        rebindCamera()
+        Log.d(TAG, "disableGL: GL surface disabled successfully")
+    }
+
+    fun rotateFrameClockwise() {
+        val currentRotation = _frameRotation.value
+        val newRotation = (currentRotation + 90) % 360
+        _frameRotation.value = newRotation
+        FrameProcessor.setRotation(newRotation)
+        Log.d(TAG, "rotateFrameClockwise: Frame rotation set to ${newRotation}°")
+    }
+
+    fun rotateFrameCounterclockwise() {
+        val currentRotation = _frameRotation.value
+        val newRotation = (currentRotation - 90 + 360) % 360
+        _frameRotation.value = newRotation
+        FrameProcessor.setRotation(newRotation)
+        Log.d(TAG, "rotateFrameCounterclockwise: Frame rotation set to ${newRotation}°")
+    }
+
     fun takeSnapshot() {
         if (!_isSnapshotEnabled.value || imageCapture == null || context == null) return
 
@@ -337,11 +395,11 @@ class CameraManager {
             val pendingRecording = videoCapture!!.output
                 .prepareRecording(context!!, outputOptions)
                 .apply {
-                    if (_isAudioEnabled.value) {
+                    if (_isAudioEnabled.value && ContextCompat.checkSelfPermission(context!!, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                         withAudioEnabled()
                         Log.d(TAG, "startVideoRecording: Audio enabled for recording")
                     } else {
-                        Log.d(TAG, "startVideoRecording: Audio disabled for recording")
+                        Log.d(TAG, "startVideoRecording: Audio disabled for recording (permission not granted or disabled)")
                     }
                 }
 
@@ -439,6 +497,8 @@ class CameraManager {
                             add(videoCapture!!)
                             Log.d(TAG, "rebindCamera: Adding VideoCapture surface to binding (index 3)")
                         }
+
+                        // Note: GL rendering will use existing surfaces, no separate GL Preview needed
                     }
 
                     Log.d(TAG, "rebindCamera: Total use cases to bind: ${useCases.size}")
@@ -467,8 +527,10 @@ class CameraManager {
     }
 
     private fun processImageAnalysis(imageProxy: ImageProxy) {
-        // Basic image analysis - can be extended for specific analysis needs
-        // For now, just demonstrate that we're receiving frames from the same stream
+        // Send frames to AGSL shader through optimized channel
+        kotlinx.coroutines.runBlocking {
+            FrameProcessor.processFrame(imageProxy)
+        }
     }
 
     fun updatePiPMode(isPiP: Boolean) {
@@ -484,12 +546,14 @@ class CameraManager {
         }
 
         CaptureController.stopCaptureRequestStream()
+        FrameProcessor.cleanup()
         cameraProvider?.unbindAll()
         _isReady.value = false
         _isAnalysisEnabled.value = false
         _isSnapshotEnabled.value = false
         _isVideoEnabled.value = false
         _isRecording.value = false
+        _isGLEnabled.value = false
         Log.d(TAG, "shutdown: Camera manager shutdown complete")
     }
 }

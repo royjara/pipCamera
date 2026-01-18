@@ -2,7 +2,6 @@ package com.elegia.pipcamera.camera
 
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.CaptureResult.Key
-import java.lang.reflect.Field
 
 data class CameraMetering(
     val focusMode: Int? = null,

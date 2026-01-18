@@ -28,11 +28,14 @@ fun SurfaceToolbar(
     onSurfaceToggle: (String, Boolean) -> Unit = { _, _ -> },
     onSnapshotClick: () -> Unit = {},
     onVideoToggle: () -> Unit = {},
+    onRotateClockwise: () -> Unit = {},
+    onRotateCounterclockwise: () -> Unit = {},
     isRecording: Boolean = false,
     isSnapshotEnabled: Boolean = false,
     isVideoEnabled: Boolean = false,
     isAnalysisEnabled: Boolean = false,
-    isAudioEnabled: Boolean = true
+    isAudioEnabled: Boolean = true,
+    isGLEnabled: Boolean = false
 ) {
 
     if (!isPiPMode) {
@@ -116,6 +119,42 @@ fun SurfaceToolbar(
                         onLeftClick = { onSurfaceToggle("video", !isVideoEnabled) },
                         onMiddleClick = { onSurfaceToggle("audio", !isAudioEnabled) },
                         onRightClick = onVideoToggle
+                    )
+
+                    // AGSL Shader row
+                    SurfaceButtonTriple(
+                        leftIcon = Icons.Default.Face,
+                        leftEnabled = isGLEnabled,
+                        leftCanToggle = true,
+                        leftDescription = "AGSL Shader Effects",
+                        middleIcon = null,
+                        middleEnabled = false,
+                        middleCanToggle = false,
+                        middleDescription = "",
+                        rightIcon = null,
+                        rightEnabled = false,
+                        rightDescription = "",
+                        onLeftClick = { onSurfaceToggle("gl", !isGLEnabled) },
+                        onMiddleClick = {},
+                        onRightClick = {}
+                    )
+
+                    // Rotation controls row (enabled only when GL/AGSL is active)
+                    SurfaceButtonTriple(
+                        leftIcon = Icons.Default.Refresh,
+                        leftEnabled = isGLEnabled,
+                        leftCanToggle = isGLEnabled,
+                        leftDescription = "Rotate Counter-clockwise",
+                        middleIcon = null,
+                        middleEnabled = false,
+                        middleCanToggle = false,
+                        middleDescription = "",
+                        rightIcon = Icons.Default.Refresh,
+                        rightEnabled = isGLEnabled,
+                        rightDescription = "Rotate Clockwise",
+                        onLeftClick = onRotateCounterclockwise,
+                        onMiddleClick = {},
+                        onRightClick = onRotateClockwise
                     )
                 }
             }
