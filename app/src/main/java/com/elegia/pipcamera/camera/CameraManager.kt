@@ -95,6 +95,10 @@ class CameraManager {
     private val _frameRotation = MutableStateFlow(0) // 0, 90, 180, 270 degrees
     val frameRotation: StateFlow<Int> = _frameRotation
 
+    // Audio processing pipeline
+    private val _isAudioProcessingEnabled = MutableStateFlow(false)
+    val isAudioProcessingEnabled: StateFlow<Boolean> = _isAudioProcessingEnabled
+
     private var surfaceInstanceIndex = 0
     private fun getNextSurfaceIndex() = ++surfaceInstanceIndex
 
@@ -356,6 +360,28 @@ class CameraManager {
         Log.d(TAG, "rotateFrameCounterclockwise: Frame rotation set to ${newRotation}°")
     }
 
+    fun enableAudioProcessing() {
+        if (_isAudioProcessingEnabled.value) {
+            Log.w(TAG, "enableAudioProcessing: Already enabled")
+            return
+        }
+
+        Log.d(TAG, "enableAudioProcessing: Enabling audio processing pipeline")
+        _isAudioProcessingEnabled.value = true
+        Log.d(TAG, "enableAudioProcessing: Audio processing enabled successfully")
+    }
+
+    fun disableAudioProcessing() {
+        if (!_isAudioProcessingEnabled.value) {
+            Log.w(TAG, "disableAudioProcessing: Already disabled")
+            return
+        }
+
+        Log.d(TAG, "disableAudioProcessing: Disabling audio processing pipeline")
+        _isAudioProcessingEnabled.value = false
+        Log.d(TAG, "disableAudioProcessing: Audio processing disabled successfully")
+    }
+
     fun takeSnapshot() {
         if (!_isSnapshotEnabled.value || imageCapture == null || context == null) return
 
@@ -554,6 +580,7 @@ class CameraManager {
         _isVideoEnabled.value = false
         _isRecording.value = false
         _isGLEnabled.value = false
+        _isAudioProcessingEnabled.value = false
         Log.d(TAG, "shutdown: Camera manager shutdown complete")
     }
 }
