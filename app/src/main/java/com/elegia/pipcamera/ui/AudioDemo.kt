@@ -1,13 +1,18 @@
 package com.elegia.pipcamera.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -25,6 +30,7 @@ fun AudioProcessingDemo(
     var oscHost by remember { mutableStateOf("127.0.0.1") }
     var oscPort by remember { mutableStateOf(8000) }
     var oscAddress by remember { mutableStateOf("/audio/stream") }
+    var isStreamActive by remember { mutableStateOf(false) }
 
     // Create sine generator processor
     val sineProcessor = remember { SineGeneratorProcessor() }
@@ -58,6 +64,20 @@ fun AudioProcessingDemo(
             onAddressChange = { address ->
                 oscAddress = address
                 sineProcessor.updateParameter("oscAddress", address)
+            }
+        )
+
+        // Stream Control Buttons
+        StreamControlButtons(
+            isStreamActive = isStreamActive,
+            nodeState = nodeState,
+            onStartClick = {
+                isStreamActive = true
+                // Stream is controlled by the ProcessingNode state
+            },
+            onStopClick = {
+                isStreamActive = false
+                // Note: ProcessingNode will continue to be ready, just UI indication
             }
         )
 
@@ -235,9 +255,14 @@ fun AudioDemoModal(
             dismissOnClickOutside = true
         )
     ) {
+        val configuration = LocalConfiguration.current
+        val screenHeight = configuration.screenHeightDp.dp
+        val modalHeight = screenHeight * 0.7f
+
         Card(
             modifier = modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .height(modalHeight)
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
@@ -275,11 +300,98 @@ fun AudioDemoModal(
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
 
-                // Audio demo content
+                // Audio demo content - scrollable
                 AudioProcessingDemo(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = 8.dp)
+                        .verticalScroll(rememberScrollState())
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StreamControlButtons(
+    isStreamActive: Boolean,
+    nodeState: ProcessingNodeState,
+    onStartClick: () -> Unit,
+    onStopClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Stream Control",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Button(
+                    onClick = onStartClick,
+                    enabled = nodeState == ProcessingNodeState.READY && !isStreamActive,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Start Stream")
+                }
+
+                Button(
+                    onClick = onStopClick,
+                    enabled = isStreamActive,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Stop Stream")
+                }
+            }
+
+            // Stream status indicator
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Stream Status:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                val (statusText, statusColor) = when {
+                    nodeState != ProcessingNodeState.READY -> "Not Ready" to MaterialTheme.colorScheme.outline
+                    isStreamActive -> "Active" to MaterialTheme.colorScheme.primary
+                    else -> "Stopped" to MaterialTheme.colorScheme.outline
+                }
+
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = statusColor
                 )
             }
         }
