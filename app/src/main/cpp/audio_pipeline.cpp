@@ -143,4 +143,25 @@ Java_com_elegia_pipcamera_audio_AudioProcessor_nativeUpdateOSCDestination(
     LOGI("OSC destination updated: %s:%d", host_str, port);
 }
 
+/**
+ * Set OSC address/topic for audio streams
+ */
+JNIEXPORT void JNICALL
+Java_com_elegia_pipcamera_audio_AudioProcessor_nativeSetOSCAddress(
+    JNIEnv *env,
+    jobject thiz,
+    jstring address
+) {
+    if (!g_osc_sender) {
+        LOGE("OSC sender not initialized");
+        return;
+    }
+
+    const char* address_str = env->GetStringUTFChars(address, nullptr);
+    g_osc_sender->setDefaultAddress(address_str);
+    env->ReleaseStringUTFChars(address, address_str);
+
+    LOGI("OSC address set: %s", address_str);
+}
+
 } // extern "C"

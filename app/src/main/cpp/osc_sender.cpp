@@ -14,7 +14,8 @@ OSCSender::OSCSender(const std::string& host, int port)
     : host_(host)
     , port_(port)
     , socket_fd_(-1)
-    , is_connected_(false) {
+    , is_connected_(false)
+    , default_address_("/audio/stream") {
     connect();
 }
 
@@ -30,8 +31,20 @@ void OSCSender::sendAudio(const float* audio_data, int frame_count) {
     // Convert audio data to vector for OSC message
     std::vector<float> data(audio_data, audio_data + frame_count);
 
-    // Send as OSC message with audio data
-    sendOSCMessage("/audio/stream", data);
+    // Send as OSC message with default address
+    sendOSCMessage(default_address_, data);
+}
+
+void OSCSender::sendAudio(const std::string& address, const float* audio_data, int frame_count) {
+    if (!isReady() || !audio_data || frame_count <= 0) {
+        return;
+    }
+
+    // Convert audio data to vector for OSC message
+    std::vector<float> data(audio_data, audio_data + frame_count);
+
+    // Send as OSC message with custom address
+    sendOSCMessage(address, data);
 }
 
 void OSCSender::updateDestination(const std::string& host, int port) {
@@ -39,6 +52,11 @@ void OSCSender::updateDestination(const std::string& host, int port) {
     host_ = host;
     port_ = port;
     connect();
+}
+
+void OSCSender::setDefaultAddress(const std::string& address) {
+    default_address_ = address;
+    LOGI("Default OSC address set to: %s", address.c_str());
 }
 
 bool OSCSender::isReady() const {

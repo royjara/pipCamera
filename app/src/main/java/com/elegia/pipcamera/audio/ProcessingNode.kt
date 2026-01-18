@@ -203,7 +203,10 @@ class SineGeneratorProcessor : NodeProcessor {
             "sampleRate" to audioProcessor.getSampleRate(),
             "bufferSize" to audioProcessor.getBufferSize(),
             "frequency" to 440.0f,
-            "amplitude" to 0.5f
+            "amplitude" to 0.5f,
+            "oscHost" to "127.0.0.1",
+            "oscPort" to 8000,
+            "oscAddress" to "/audio/stream"
         )
     }
 
@@ -216,6 +219,9 @@ class SineGeneratorProcessor : NodeProcessor {
             "oscPort" -> {
                 val host = getParameters()["oscHost"] as? String ?: "127.0.0.1"
                 audioProcessor.updateOSCDestination(host, value as Int)
+            }
+            "oscAddress" -> {
+                audioProcessor.setOSCAddress(value.toString())
             }
         }
     }

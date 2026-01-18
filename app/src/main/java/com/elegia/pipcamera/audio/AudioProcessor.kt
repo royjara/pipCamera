@@ -99,6 +99,20 @@ class AudioProcessor {
     }
 
     /**
+     * Set OSC address/topic for audio streams
+     * @param address OSC address/topic (e.g., "/audio/stream", "/audio/channel1")
+     */
+    fun setOSCAddress(address: String) {
+        if (!isInitialized) {
+            Log.w(TAG, "Audio processor not initialized")
+            return
+        }
+
+        Log.i(TAG, "Setting OSC address: $address")
+        nativeSetOSCAddress(address)
+    }
+
+    /**
      * Create a direct ByteBuffer for efficient native access
      * @param sizeInFloats Buffer size in float elements
      */
@@ -144,4 +158,6 @@ class AudioProcessor {
     private external fun nativeShutdown()
 
     private external fun nativeUpdateOSCDestination(host: String, port: Int)
+
+    private external fun nativeSetOSCAddress(address: String)
 }

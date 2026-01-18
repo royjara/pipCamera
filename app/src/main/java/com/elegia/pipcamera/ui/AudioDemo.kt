@@ -1,11 +1,16 @@
 package com.elegia.pipcamera.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.elegia.pipcamera.audio.*
 
 /**
@@ -19,6 +24,7 @@ fun AudioProcessingDemo(
     var nodeState by remember { mutableStateOf(ProcessingNodeState.IDLE) }
     var oscHost by remember { mutableStateOf("127.0.0.1") }
     var oscPort by remember { mutableStateOf(8000) }
+    var oscAddress by remember { mutableStateOf("/audio/stream") }
 
     // Create sine generator processor
     val sineProcessor = remember { SineGeneratorProcessor() }
@@ -40,6 +46,7 @@ fun AudioProcessingDemo(
         OSCConfiguration(
             host = oscHost,
             port = oscPort,
+            address = oscAddress,
             onHostChange = { host ->
                 oscHost = host
                 sineProcessor.updateParameter("oscHost", host)
@@ -47,6 +54,10 @@ fun AudioProcessingDemo(
             onPortChange = { port ->
                 oscPort = port
                 sineProcessor.updateParameter("oscPort", port)
+            },
+            onAddressChange = { address ->
+                oscAddress = address
+                sineProcessor.updateParameter("oscAddress", address)
             }
         )
 
@@ -126,8 +137,10 @@ private fun StatusIndicator(state: ProcessingNodeState) {
 private fun OSCConfiguration(
     host: String,
     port: Int,
+    address: String,
     onHostChange: (String) -> Unit,
-    onPortChange: (Int) -> Unit
+    onPortChange: (Int) -> Unit,
+    onAddressChange: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -154,6 +167,14 @@ private fun OSCConfiguration(
                     newPort.toIntOrNull()?.let(onPortChange)
                 },
                 label = { Text("Port") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = address,
+                onValueChange = onAddressChange,
+                label = { Text("OSC Address/Topic") },
+                placeholder = { Text("/audio/stream") },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -191,6 +212,75 @@ private fun ProcessingInfo(processor: SineGeneratorProcessor) {
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Modal dialog wrapper for the Audio Processing Demo
+ * Only processes audio while the modal is open
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioDemoModal(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Card(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Header with close button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Audio Processing Pipeline",
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // Audio demo content
+                AudioProcessingDemo(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 8.dp)
+                )
             }
         }
     }
