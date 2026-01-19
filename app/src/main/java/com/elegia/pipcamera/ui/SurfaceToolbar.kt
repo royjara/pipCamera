@@ -30,6 +30,7 @@ fun SurfaceToolbar(
     onVideoToggle: () -> Unit = {},
     onRotateClockwise: () -> Unit = {},
     onRotateCounterclockwise: () -> Unit = {},
+    onAudioDemoClick: () -> Unit = {},
     isRecording: Boolean = false,
     isSnapshotEnabled: Boolean = false,
     isVideoEnabled: Boolean = false,
@@ -156,6 +157,23 @@ fun SurfaceToolbar(
                         onMiddleClick = {},
                         onRightClick = onRotateClockwise
                     )
+
+                    // Audio Demo row - single full-width button
+                    FloatingActionButton(
+                        onClick = onAudioDemoClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Audio Processing Demo",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

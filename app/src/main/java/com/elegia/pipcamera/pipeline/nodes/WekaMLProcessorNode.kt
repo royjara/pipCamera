@@ -145,7 +145,7 @@ private class AudioFeatureExtractor(private val fftSize: Int) {
     }
 
     private fun calculateRMS(samples: FloatArray): Double {
-        val sumOfSquares = samples.map { it * it }.sum()
+        val sumOfSquares = samples.map { it * it }.sum().toDouble()
         return sqrt(sumOfSquares / samples.size)
     }
 
@@ -170,7 +170,7 @@ private class AudioFeatureExtractor(private val fftSize: Int) {
                 crossings++
             }
         }
-        return crossings.toDouble() / samples.size
+        return crossings.toDouble() / samples.size.toDouble()
     }
 
     private fun calculateMFCCs(samples: FloatArray): DoubleArray {

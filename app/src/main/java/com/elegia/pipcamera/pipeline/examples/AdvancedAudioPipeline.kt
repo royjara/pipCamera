@@ -194,8 +194,8 @@ class SimpleAudioPipeline(private val context: Context) {
         }
     }
 
-    suspend fun start() = pipeline.start()
-    suspend fun stop() = pipeline.stop()
+    suspend fun start(): Boolean = pipeline.start()
+    suspend fun stop(): Boolean = pipeline.stop()
 }
 
 /**
@@ -267,6 +267,6 @@ class MLAudioResearchPipeline(private val context: Context) {
         }
     }
 
-    suspend fun start() = pipeline.start()
-    suspend fun stop() = pipeline.stop()
+    suspend fun start(): Boolean = pipeline.start()
+    suspend fun stop(): Boolean = pipeline.stop()
 }

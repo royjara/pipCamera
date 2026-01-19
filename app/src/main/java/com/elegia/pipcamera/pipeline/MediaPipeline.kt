@@ -42,35 +42,51 @@ class MediaPipeline(private val context: Context) {
     /**
      * Start the media processing pipeline
      */
-    suspend fun start() {
-        if (isRunning) return
+    suspend fun start(): Boolean {
+        if (isRunning) return true
 
         Log.i(TAG, "Starting media pipeline with ${nodes.size} nodes")
         isRunning = true
 
-        // Initialize all nodes
-        nodes.values.forEach { node ->
-            node.initialize(context)
-        }
+        try {
+            // Initialize all nodes
+            nodes.values.forEach { node ->
+                if (!node.initialize(context)) {
+                    Log.e(TAG, "Failed to initialize node: ${node.nodeId}")
+                    return false
+                }
+            }
 
-        // Start processing
-        scope.launch {
-            startProcessing()
+            // Start processing
+            scope.launch {
+                startProcessing()
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start pipeline", e)
+            isRunning = false
+            return false
         }
     }
 
     /**
      * Stop the pipeline and cleanup resources
      */
-    suspend fun stop() {
-        if (!isRunning) return
+    suspend fun stop(): Boolean {
+        if (!isRunning) return true
 
         Log.i(TAG, "Stopping media pipeline")
         isRunning = false
 
-        scope.cancel()
-        nodes.values.forEach { node ->
-            node.cleanup()
+        try {
+            scope.cancel()
+            nodes.values.forEach { node ->
+                node.cleanup()
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during pipeline stop", e)
+            return false
         }
     }
 

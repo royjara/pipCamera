@@ -81,6 +81,21 @@ fun CameraToolbar(
                         }
                     }
 
+                    // Middle button - Settings/Controls
+                    FloatingActionButton(
+                        onClick = { /* Add settings action here */ },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     // Right button - Debug toggle
                     FloatingActionButton(
                         onClick = { showDebugScreen = !showDebugScreen },

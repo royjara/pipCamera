@@ -155,6 +155,9 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
             onRotateCounterclockwise = {
                 cameraManager.rotateFrameCounterclockwise()
             },
+            onAudioDemoClick = {
+                showAudioDemo = true
+            },
             isRecording = cameraManager.isRecording.collectAsState().value,
             isSnapshotEnabled = cameraManager.isSnapshotEnabled.collectAsState().value,
             isVideoEnabled = cameraManager.isVideoEnabled.collectAsState().value,
@@ -170,21 +173,6 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
             )
         }
 
-        // Audio Demo FAB (only show when not in PiP mode)
-        if (!isPiPMode) {
-            FloatingActionButton(
-                onClick = { showAudioDemo = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp),
-                containerColor = MaterialTheme.colorScheme.secondary
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Audio Processing Demo"
-                )
-            }
-        }
     }
 
     // Audio Demo Modal

@@ -60,7 +60,7 @@ fun MediaPipelineDemo(modifier: Modifier = Modifier) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.GraphicEq,
+                        imageVector = Icons.Default.Settings,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -182,9 +182,9 @@ private fun PipelineTypeSelector(
                     enabled = !isRunning,
                     leadingIcon = {
                         when (pipelineType) {
-                            PipelineType.ADVANCED -> Icon(Icons.Default.Speed, contentDescription = null)
-                            PipelineType.SIMPLE -> Icon(Icons.Default.FlashOn, contentDescription = null)
-                            PipelineType.ML_RESEARCH -> Icon(Icons.Default.Psychology, contentDescription = null)
+                            PipelineType.ADVANCED -> Icon(Icons.Default.Build, contentDescription = null)
+                            PipelineType.SIMPLE -> Icon(Icons.Default.Star, contentDescription = null)
+                            PipelineType.ML_RESEARCH -> Icon(Icons.Default.Search, contentDescription = null)
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -231,7 +231,7 @@ private fun ConfigurationPanel(
                 onValueChange = onHostChange,
                 label = { Text("Stream Host") },
                 enabled = !isRunning,
-                leadingIcon = { Icon(Icons.Default.Computer, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -240,7 +240,7 @@ private fun ConfigurationPanel(
                 onValueChange = { it.toIntOrNull()?.let(onPortChange) },
                 label = { Text("Stream Port") },
                 enabled = !isRunning,
-                leadingIcon = { Icon(Icons.Default.Router, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -337,7 +337,7 @@ private fun ControlPanel(
                         containerColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Icon(Icons.Default.Stop, contentDescription = null)
+                    Icon(Icons.Default.Close, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Stop Pipeline")
                 }
@@ -353,7 +353,7 @@ private fun ControlPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = if (isRunning) Icons.Default.Circle else Icons.Default.RadioButtonUnchecked,
+                    imageVector = if (isRunning) Icons.Default.Check else Icons.Default.Clear,
                     contentDescription = null,
                     tint = statusColor,
                     modifier = Modifier.size(16.dp)
