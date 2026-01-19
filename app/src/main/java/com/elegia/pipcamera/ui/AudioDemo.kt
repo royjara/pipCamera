@@ -31,6 +31,7 @@ fun AudioProcessingDemo(
     var oscPort by remember { mutableStateOf(8000) }
     var oscAddress by remember { mutableStateOf("/audio/stream") }
     var isStreamActive by remember { mutableStateOf(false) }
+    var parameterRefreshTrigger by remember { mutableStateOf(0) }
 
     // Create sine generator processor
     val sineProcessor = remember { SineGeneratorProcessor() }
@@ -53,18 +54,21 @@ fun AudioProcessingDemo(
             host = oscHost,
             port = oscPort,
             address = oscAddress,
-            onHostChange = { host ->
-                oscHost = host
-                sineProcessor.updateParameter("oscHost", host)
-            },
-            onPortChange = { port ->
-                oscPort = port
-                sineProcessor.updateParameter("oscPort", port)
-            },
-            onAddressChange = { address ->
-                oscAddress = address
-                sineProcessor.updateParameter("oscAddress", address)
+            onHostChange = { oscHost = it },
+            onPortChange = { oscPort = it },
+            onAddressChange = { oscAddress = it },
+            onApplyChanges = {
+                sineProcessor.updateParameter("oscHost", oscHost)
+                sineProcessor.updateParameter("oscPort", oscPort)
+                sineProcessor.updateParameter("oscAddress", oscAddress)
+                parameterRefreshTrigger++ // Trigger parameter UI refresh
             }
+        )
+
+        // Frequency Control
+        FrequencyControl(
+            processor = sineProcessor,
+            refreshTrigger = parameterRefreshTrigger
         )
 
         // Stream Control Buttons
@@ -73,11 +77,11 @@ fun AudioProcessingDemo(
             nodeState = nodeState,
             onStartClick = {
                 isStreamActive = true
-                // Stream is controlled by the ProcessingNode state
+                sineProcessor.updateParameter("streamEnabled", true)
             },
             onStopClick = {
                 isStreamActive = false
-                // Note: ProcessingNode will continue to be ready, just UI indication
+                sineProcessor.updateParameter("streamEnabled", false)
             }
         )
 
@@ -120,7 +124,10 @@ fun AudioProcessingDemo(
         }
 
         // Processing information
-        ProcessingInfo(sineProcessor)
+        ProcessingInfo(sineProcessor, parameterRefreshTrigger)
+
+        // Instructions for testing
+        TestingInstructions()
     }
 }
 
@@ -160,8 +167,16 @@ private fun OSCConfiguration(
     address: String,
     onHostChange: (String) -> Unit,
     onPortChange: (Int) -> Unit,
-    onAddressChange: (String) -> Unit
+    onAddressChange: (String) -> Unit,
+    onApplyChanges: () -> Unit
 ) {
+    var pendingChanges by remember { mutableStateOf(false) }
+    val originalHost = remember(pendingChanges) { host }
+    val originalPort = remember(pendingChanges) { port }
+    val originalAddress = remember(pendingChanges) { address }
+
+    // Check if there are unsaved changes
+    val hasChanges = host != originalHost || port != originalPort || address != originalAddress
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -197,13 +212,42 @@ private fun OSCConfiguration(
                 placeholder = { Text("/audio/stream") },
                 modifier = Modifier.fillMaxWidth()
             )
+
+            // Apply button for OSC changes
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = {
+                        onApplyChanges()
+                        pendingChanges = !pendingChanges // Trigger remember refresh
+                    },
+                    enabled = hasChanges,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (hasChanges) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        }
+                    )
+                ) {
+                    Text(
+                        text = if (hasChanges) "Apply OSC Configuration" else "Configuration Applied",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun ProcessingInfo(processor: SineGeneratorProcessor) {
-    val parameters = processor.getParameters()
+private fun ProcessingInfo(processor: SineGeneratorProcessor, refreshTrigger: Int) {
+    // Refresh parameters when trigger changes (clean approach)
+    val parameters = remember(refreshTrigger) { processor.getParameters() }
 
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -338,7 +382,7 @@ private fun StreamControlButtons(
             ) {
                 Button(
                     onClick = onStartClick,
-                    enabled = nodeState == ProcessingNodeState.READY && !isStreamActive,
+                    enabled = (nodeState == ProcessingNodeState.READY || nodeState == ProcessingNodeState.PROCESSING) && !isStreamActive,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
@@ -383,9 +427,11 @@ private fun StreamControlButtons(
                 )
 
                 val (statusText, statusColor) = when {
-                    nodeState != ProcessingNodeState.READY -> "Not Ready" to MaterialTheme.colorScheme.outline
+                    nodeState == ProcessingNodeState.ERROR -> "Error" to MaterialTheme.colorScheme.error
+                    nodeState == ProcessingNodeState.INITIALIZING -> "Initializing" to MaterialTheme.colorScheme.outline
+                    nodeState == ProcessingNodeState.IDLE -> "Not Ready" to MaterialTheme.colorScheme.outline
                     isStreamActive -> "Active" to MaterialTheme.colorScheme.primary
-                    else -> "Stopped" to MaterialTheme.colorScheme.outline
+                    else -> "Ready" to MaterialTheme.colorScheme.tertiary
                 }
 
                 Text(
@@ -393,6 +439,121 @@ private fun StreamControlButtons(
                     style = MaterialTheme.typography.bodyMedium,
                     color = statusColor
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TestingInstructions() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Testing Instructions",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "1. Run the OSC receiver on your Mac: ./osc_audio_receiver",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "2. Set OSC Host to your Mac's IP address (check receiver output)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "3. Click 'Apply OSC Configuration' to save settings",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "4. Click 'Start Stream' to begin audio transmission",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun FrequencyControl(
+    processor: SineGeneratorProcessor,
+    refreshTrigger: Int
+) {
+    // Get current frequency parameters
+    val parameters = remember(refreshTrigger) { processor.getParameters() }
+    val currentIndex = parameters["frequencyIndex"] as? Int ?: 5 // Default to A4
+    val currentFreq = parameters["frequency"] as? Float ?: 440.0f
+
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Frequency Control",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            // Current note display
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Note:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "${SineGeneratorProcessor.NOTE_NAMES.getOrNull(currentIndex) ?: "A4"} (${String.format("%.1f", currentFreq)} Hz)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Frequency slider
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Slider(
+                    value = currentIndex.toFloat(),
+                    onValueChange = { value ->
+                        processor.updateParameter("frequencyIndex", value.toInt())
+                    },
+                    valueRange = 0f..(SineGeneratorProcessor.C_MAJOR_FREQUENCIES.size - 1).toFloat(),
+                    steps = SineGeneratorProcessor.C_MAJOR_FREQUENCIES.size - 2 // steps between min and max
+                )
+
+                // Scale labels
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    SineGeneratorProcessor.NOTE_NAMES.forEach { note ->
+                        Text(
+                            text = note,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }

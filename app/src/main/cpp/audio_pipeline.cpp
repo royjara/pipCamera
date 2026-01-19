@@ -164,4 +164,22 @@ Java_com_elegia_pipcamera_audio_AudioProcessor_nativeSetOSCAddress(
     LOGI("OSC address set: %s", address_str);
 }
 
+/**
+ * Set sine wave frequency
+ */
+JNIEXPORT void JNICALL
+Java_com_elegia_pipcamera_audio_AudioProcessor_nativeSetFrequency(
+    JNIEnv *env,
+    jobject thiz,
+    jfloat frequency
+) {
+    if (!g_sine_generator) {
+        LOGE("Sine generator not initialized");
+        return;
+    }
+
+    g_sine_generator->setFrequency(frequency);
+    LOGI("Frequency set: %.2f Hz", frequency);
+}
+
 } // extern "C"

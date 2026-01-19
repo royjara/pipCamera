@@ -48,17 +48,26 @@ class AudioProcessor {
 
         Log.i(TAG, "Initializing audio processor: sr=$sampleRate, buffer=$bufferSize, in=$inletCount, out=$outletCount")
 
-        this.sampleRate = sampleRate
-        this.bufferSize = bufferSize
-        this.inletCount = inletCount
-        this.outletCount = outletCount
+        try {
+            this.sampleRate = sampleRate
+            this.bufferSize = bufferSize
+            this.inletCount = inletCount
+            this.outletCount = outletCount
 
-        isInitialized = nativeInitialize(sampleRate, bufferSize, inletCount, outletCount)
+            isInitialized = nativeInitialize(sampleRate, bufferSize, inletCount, outletCount)
 
-        if (isInitialized) {
-            Log.i(TAG, "Audio processor initialized successfully")
-        } else {
-            Log.e(TAG, "Failed to initialize audio processor")
+            if (isInitialized) {
+                Log.i(TAG, "Audio processor initialized successfully")
+            } else {
+                Log.e(TAG, "Native initialization returned false")
+            }
+
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Native method not found - library may not be loaded", e)
+            isInitialized = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during initialization", e)
+            isInitialized = false
         }
 
         return isInitialized
@@ -113,6 +122,20 @@ class AudioProcessor {
     }
 
     /**
+     * Update the sine wave frequency
+     * @param frequency Frequency in Hz
+     */
+    fun setFrequency(frequency: Float) {
+        if (!isInitialized) {
+            Log.w(TAG, "Audio processor not initialized")
+            return
+        }
+
+        Log.i(TAG, "Setting frequency: $frequency Hz")
+        nativeSetFrequency(frequency)
+    }
+
+    /**
      * Create a direct ByteBuffer for efficient native access
      * @param sizeInFloats Buffer size in float elements
      */
@@ -160,4 +183,6 @@ class AudioProcessor {
     private external fun nativeUpdateOSCDestination(host: String, port: Int)
 
     private external fun nativeSetOSCAddress(address: String)
+
+    private external fun nativeSetFrequency(frequency: Float)
 }

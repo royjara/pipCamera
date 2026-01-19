@@ -1,0 +1,7 @@
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/osc_audio_receiver.dir
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/edit_cache.dir
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/rebuild_cache.dir
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/list_install_components.dir
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/install.dir
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/install/local.dir
+/Users/azucar/AndroidStudioProjects/PipCamera/osc_receiver/build/CMakeFiles/install/strip.dir
