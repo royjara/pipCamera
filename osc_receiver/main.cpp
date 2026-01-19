@@ -64,25 +64,30 @@ void printUsage(const char* program_name) {
 
 void printStatus(const OSCReceiver& receiver, const AudioOutput* audio_output) {
     static auto start_time = std::chrono::steady_clock::now();
+    static uint64_t last_message_count = 0;
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time);
 
     uint64_t message_count = receiver.getMessageCount();
-    double messages_per_second = static_cast<double>(message_count) / elapsed.count();
+    double messages_per_second = static_cast<double>(message_count) / (elapsed.count() > 0 ? elapsed.count() : 1);
 
-    std::cout << "\r"
-              << "Time: " << std::setfill('0') << std::setw(2) << elapsed.count() / 60 << ":"
-              << std::setw(2) << elapsed.count() % 60
-              << " | Messages: " << message_count
-              << " | Rate: " << std::fixed << std::setprecision(1) << messages_per_second << " msg/s";
+    // Only update status line if there are new messages or every 5 seconds
+    if (message_count != last_message_count || elapsed.count() % 5 == 0) {
+        std::cout << "\r" << std::string(80, ' ') << "\r"; // Clear line
+        std::cout << "Time: " << std::setfill('0') << std::setw(2) << elapsed.count() / 60 << ":"
+                  << std::setw(2) << elapsed.count() % 60
+                  << " | Total: " << message_count
+                  << " | Rate: " << std::fixed << std::setprecision(1) << messages_per_second << " msg/s";
 
-    if (audio_output && audio_output->isRunning()) {
-        std::cout << " | Audio: ON (vol: " << std::setprecision(1) << audio_output->getVolume() << ")";
-    } else {
-        std::cout << " | Audio: OFF";
+        if (audio_output && audio_output->isRunning()) {
+            std::cout << " | Audio: ON";
+        } else {
+            std::cout << " | Audio: OFF";
+        }
+
+        std::cout << " | Channels: Audio/Text/Analysis" << std::flush;
+        last_message_count = message_count;
     }
-
-    std::cout << std::flush;
 }
 
 int main(int argc, char* argv[]) {
@@ -115,8 +120,8 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
 
-    std::cout << "OSC Audio Receiver" << std::endl;
-    std::cout << "==================" << std::endl;
+    std::cout << "OSC Multi-Channel Receiver" << std::endl;
+    std::cout << "===========================" << std::endl;
 
     printLocalIPs();
     std::cout << std::endl;
@@ -124,7 +129,10 @@ int main(int argc, char* argv[]) {
     std::cout << "Port: " << port << std::endl;
     std::cout << "Volume: " << volume << std::endl;
     std::cout << "Audio output: " << (silent_mode ? "disabled" : "enabled") << std::endl;
-    std::cout << "Expected OSC address: /audio/stream" << std::endl;
+    std::cout << "Supported channels:" << std::endl;
+    std::cout << "  • Audio: /chan1/audio or /audio/*" << std::endl;
+    std::cout << "  • Text:  /chan2/text or /text/*" << std::endl;
+    std::cout << "  • Analysis: /chan3/analysis or /analysis/*" << std::endl;
     std::cout << std::endl;
 
     // Create OSC receiver
@@ -157,6 +165,22 @@ int main(int argc, char* argv[]) {
         });
     }
 
+    // Set up text message callback
+    receiver.setTextCallback([](const std::string& channel, const std::string& message) {
+        std::cout << std::endl << "[TEXT " << channel << "] " << message << std::endl;
+    });
+
+    // Set up analysis data callback
+    receiver.setAnalysisCallback([](const std::string& channel, const std::vector<float>& features) {
+        std::cout << std::endl << "[ANALYSIS " << channel << "] " << features.size() << " features: ";
+        for (size_t i = 0; i < std::min(features.size(), size_t(5)); ++i) {
+            std::cout << std::fixed << std::setprecision(3) << features[i];
+            if (i < std::min(features.size(), size_t(5)) - 1) std::cout << ", ";
+        }
+        if (features.size() > 5) std::cout << "...";
+        std::cout << std::endl;
+    });
+
     // Start OSC receiver
     if (!receiver.start()) {
         std::cerr << "Failed to start OSC receiver" << std::endl;
@@ -166,7 +190,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "Receiver started. Listening for OSC audio messages..." << std::endl;
+    std::cout << "Receiver started. Listening for multi-channel OSC messages..." << std::endl;
     std::cout << "Press Ctrl+C to quit." << std::endl;
     std::cout << std::endl;
 

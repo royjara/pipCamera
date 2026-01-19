@@ -9,12 +9,14 @@
 #include <queue>
 
 /**
- * Simple OSC receiver for audio data
- * Receives OSC messages and extracts audio samples
+ * Multi-channel OSC receiver for audio, text, and analysis data
+ * Receives OSC messages on different channels like TouchDesigner
  */
 class OSCReceiver {
 public:
     using AudioCallback = std::function<void(const std::vector<float>&)>;
+    using TextCallback = std::function<void(const std::string&, const std::string&)>;  // (channel, message)
+    using AnalysisCallback = std::function<void(const std::string&, const std::vector<float>&)>;  // (channel, features)
 
     OSCReceiver(int port = 8000);
     ~OSCReceiver();
@@ -33,6 +35,16 @@ public:
      * Set callback for received audio data
      */
     void setAudioCallback(AudioCallback callback);
+
+    /**
+     * Set callback for received text messages
+     */
+    void setTextCallback(TextCallback callback);
+
+    /**
+     * Set callback for received analysis data
+     */
+    void setAnalysisCallback(AnalysisCallback callback);
 
     /**
      * Get latest received audio data
@@ -59,6 +71,8 @@ private:
     std::thread receive_thread_;
 
     AudioCallback audio_callback_;
+    TextCallback text_callback_;
+    AnalysisCallback analysis_callback_;
     std::mutex data_mutex_;
     std::queue<std::vector<float>> audio_queue_;
     std::vector<float> latest_audio_;
@@ -67,18 +81,29 @@ private:
 };
 
 /**
- * Simple OSC message parser for audio data
+ * Multi-type OSC message parser for TouchDesigner-style channels
  */
 class OSCParser {
 public:
-    struct AudioMessage {
+    enum MessageType {
+        AUDIO,
+        TEXT,
+        ANALYSIS,
+        UNKNOWN
+    };
+
+    struct OSCMessage {
         std::string address;
-        std::vector<float> samples;
+        MessageType type;
+        std::vector<float> floatData;
+        std::string textData;
         bool valid;
     };
 
-    static AudioMessage parseAudioMessage(const std::string& data);
+    static OSCMessage parseMessage(const std::string& data);
+    static MessageType getMessageType(const std::string& address);
 
 private:
     static bool parseFloatArray(const std::string& data, std::vector<float>& samples);
+    static bool parseTextMessage(const std::string& data, std::string& text);
 };

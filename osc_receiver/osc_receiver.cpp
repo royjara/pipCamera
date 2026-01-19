@@ -7,6 +7,7 @@
 #include <sstream>
 #include <cstring>
 #include <iomanip>
+#include <map>
 
 OSCReceiver::OSCReceiver(int port)
     : port_(port)
@@ -84,6 +85,14 @@ void OSCReceiver::setAudioCallback(AudioCallback callback) {
     audio_callback_ = callback;
 }
 
+void OSCReceiver::setTextCallback(TextCallback callback) {
+    text_callback_ = callback;
+}
+
+void OSCReceiver::setAnalysisCallback(AnalysisCallback callback) {
+    analysis_callback_ = callback;
+}
+
 std::vector<float> OSCReceiver::getLatestAudioData() {
     std::lock_guard<std::mutex> lock(data_mutex_);
     return latest_audio_;
@@ -115,43 +124,58 @@ void OSCReceiver::receiveLoop() {
 }
 
 void OSCReceiver::parseOSCMessage(const std::string& data) {
-    // Simple parser for our audio messages
-    auto audio_msg = OSCParser::parseAudioMessage(data);
+    OSCParser::OSCMessage msg = OSCParser::parseMessage(data);
 
-    if (audio_msg.valid && !audio_msg.samples.empty()) {
-        {
-            std::lock_guard<std::mutex> lock(data_mutex_);
-            latest_audio_ = audio_msg.samples;
+    if (msg.valid) {
+        // Reduced verbosity - only show channel info
+        static std::map<std::string, int> channel_counts;
+        channel_counts[msg.address]++;
 
-            // Keep a queue of recent audio data
-            audio_queue_.push(audio_msg.samples);
-            while (audio_queue_.size() > 10) { // Keep last 10 audio buffers
-                audio_queue_.pop();
-            }
+        if (channel_counts[msg.address] % 100 == 1) {  // Show every 100th message
+            std::string typeStr = (msg.type == OSCParser::AUDIO) ? "audio" :
+                                (msg.type == OSCParser::TEXT) ? "text" :
+                                (msg.type == OSCParser::ANALYSIS) ? "analysis" : "unknown";
+            std::cout << "[" << msg.address << "] " << typeStr << " (msg #" << channel_counts[msg.address] << ") ";
         }
 
-        // Call callback if set
-        if (audio_callback_) {
-            audio_callback_(audio_msg.samples);
+        // Route to appropriate callback
+        switch (msg.type) {
+            case OSCParser::AUDIO:
+                if (!msg.floatData.empty()) {
+                    {
+                        std::lock_guard<std::mutex> lock(data_mutex_);
+                        latest_audio_ = msg.floatData;
+                        audio_queue_.push(msg.floatData);
+                        while (audio_queue_.size() > 10) { // Keep last 10 audio buffers
+                            audio_queue_.pop();
+                        }
+                    }
+                    if (audio_callback_) {
+                        audio_callback_(msg.floatData);
+                    }
+                }
+                break;
+            case OSCParser::TEXT:
+                if (text_callback_) {
+                    text_callback_(msg.address, msg.textData);
+                }
+                break;
+            case OSCParser::ANALYSIS:
+                if (analysis_callback_) {
+                    analysis_callback_(msg.address, msg.floatData);
+                }
+                break;
+            default:
+                break;
         }
-
-        std::cout << "Received audio: " << audio_msg.address
-                  << " with " << audio_msg.samples.size() << " samples";
-        if (!audio_msg.samples.empty()) {
-            std::cout << " (first: " << std::fixed << std::setprecision(3)
-                     << audio_msg.samples[0] << ")";
-        }
-        std::cout << std::endl;
     }
 }
 
 // OSC Parser implementation
-OSCParser::AudioMessage OSCParser::parseAudioMessage(const std::string& data) {
-    AudioMessage msg;
+OSCParser::OSCMessage OSCParser::parseMessage(const std::string& data) {
+    OSCMessage msg;
     msg.valid = false;
-
-    // Simple text-based parsing for our prototype OSC format
-    // Format: "/audio/stream sample1 sample2 sample3 ..."
+    msg.type = UNKNOWN;
 
     std::istringstream iss(data);
     std::string token;
@@ -159,22 +183,72 @@ OSCParser::AudioMessage OSCParser::parseAudioMessage(const std::string& data) {
     // Get address
     if (iss >> token) {
         msg.address = token;
+        msg.type = getMessageType(token);
 
-        // Parse remaining tokens as float samples
-        while (iss >> token) {
-            try {
-                float sample = std::stof(token);
-                msg.samples.push_back(sample);
-            } catch (const std::exception&) {
-                // Skip invalid tokens
-                continue;
-            }
-        }
+        switch (msg.type) {
+            case AUDIO:
+                // Parse remaining tokens as float samples
+                while (iss >> token) {
+                    try {
+                        float sample = std::stof(token);
+                        msg.floatData.push_back(sample);
+                    } catch (const std::exception&) {
+                        continue;
+                    }
+                }
+                msg.valid = !msg.floatData.empty();
+                break;
 
-        if (!msg.samples.empty()) {
-            msg.valid = true;
+            case TEXT:
+                // Parse remaining text as single string
+                {
+                    std::string restOfLine;
+                    std::getline(iss, restOfLine);
+                    if (!restOfLine.empty() && restOfLine[0] == ' ') {
+                        restOfLine = restOfLine.substr(1); // Remove leading space
+                    }
+                    msg.textData = restOfLine;
+                    msg.valid = !msg.textData.empty();
+                }
+                break;
+
+            case ANALYSIS:
+                // Parse as float array (ML features)
+                while (iss >> token) {
+                    try {
+                        float value = std::stof(token);
+                        msg.floatData.push_back(value);
+                    } catch (const std::exception&) {
+                        continue;
+                    }
+                }
+                msg.valid = !msg.floatData.empty();
+                break;
+
+            default:
+                break;
         }
     }
 
     return msg;
+}
+
+OSCParser::MessageType OSCParser::getMessageType(const std::string& address) {
+    // TouchDesigner-style channel routing
+    if (address.find("/chan1/audio") == 0 ||
+        address.find("/audio/") == 0 ||
+        address.find("audio") != std::string::npos) {
+        return AUDIO;
+    } else if (address.find("/chan2/text") == 0 ||
+               address.find("/text/") == 0 ||
+               address.find("text") != std::string::npos) {
+        return TEXT;
+    } else if (address.find("/chan3/analysis") == 0 ||
+               address.find("/analysis/") == 0 ||
+               address.find("/features/") == 0 ||
+               address.find("analysis") != std::string::npos ||
+               address.find("features") != std::string::npos) {
+        return ANALYSIS;
+    }
+    return UNKNOWN;
 }
