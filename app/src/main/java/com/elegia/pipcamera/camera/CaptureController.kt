@@ -97,7 +97,6 @@ object CaptureController {
             timestamp: Long,
             frameNumber: Long
         ) {
-            Log.v(TAG, "CaptureRequest: onCaptureStarted - frame=$frameNumber, timestamp=$timestamp")
             super.onCaptureStarted(session, request, timestamp, frameNumber)
         }
 
@@ -106,7 +105,6 @@ object CaptureController {
             request: CaptureRequest,
             partialResult: CaptureResult
         ) {
-            Log.v(TAG, "CaptureRequest: onCaptureProgressed - partial result available")
             super.onCaptureProgressed(session, request, partialResult)
         }
 
@@ -115,7 +113,6 @@ object CaptureController {
             request: CaptureRequest,
             result: TotalCaptureResult
         ) {
-            Log.v(TAG, "CaptureRequest: onCaptureCompleted - result available")
             super.onCaptureCompleted(session, request, result)
             // Update metering info from capture result
             scope.launch {
@@ -199,8 +196,6 @@ object CaptureController {
                     _captureRequests.emit(options)
 
                     requestCount++
-                    Log.v(TAG, "CaptureRequestStream: Emitted request #$requestCount")
-
                     delay(1000) // Emit every second
                 } catch (e: Exception) {
                     Log.e(TAG, "CaptureRequestStream: Error in streaming", e)

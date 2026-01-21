@@ -79,24 +79,50 @@ Java_com_elegia_pipcamera_audio_AudioProcessor_nativeProcessAudio(
         return;
     }
 
+    // Validate frame count to prevent buffer overruns
+    if (frame_count <= 0 || frame_count > 8192) {
+        LOGE("Invalid frame count: %d", frame_count);
+        return;
+    }
+
     // Get direct buffer pointers for efficient data access
     float* input_data = nullptr;
     float* output_data = nullptr;
 
     if (input_buffer) {
         input_data = static_cast<float*>(env->GetDirectBufferAddress(input_buffer));
+        if (!input_data) {
+            LOGE("Failed to get input buffer address");
+            return;
+        }
     }
 
     if (output_buffer) {
         output_data = static_cast<float*>(env->GetDirectBufferAddress(output_buffer));
     }
 
-    // Generate sine wave audio (mock microphone)
+    // Get audio buffer for processing
     auto audio_buffer = g_buffer_manager->getAudioBuffer();
-    g_sine_generator->generate(audio_buffer.get(), frame_count);
+    if (!audio_buffer) {
+        LOGE("Failed to get audio buffer");
+        return;
+    }
 
-    // Send audio data via OSC
-    g_osc_sender->sendAudio(audio_buffer.get(), frame_count);
+    // Use input data if provided, otherwise generate sine wave
+    if (input_data) {
+        // Process real microphone data
+        std::memcpy(audio_buffer.get(), input_data, frame_count * sizeof(float));
+    } else {
+        // Generate sine wave audio (for sine generator)
+        g_sine_generator->generate(audio_buffer.get(), frame_count);
+    }
+
+    // Send audio data via OSC (safely)
+    try {
+        g_osc_sender->sendAudio(audio_buffer.get(), frame_count);
+    } catch (...) {
+        LOGE("Exception during OSC send");
+    }
 
     // Copy to output buffer if provided
     if (output_data && audio_buffer) {

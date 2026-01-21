@@ -89,7 +89,13 @@ void OSCSender::disconnect() {
 }
 
 void OSCSender::sendOSCMessage(const std::string& address, const std::vector<float>& data) {
-    if (!isReady()) {
+    if (!isReady() || data.empty()) {
+        return;
+    }
+
+    // Limit data size to prevent excessive memory allocation
+    if (data.size() > 4096) {
+        LOGE("Audio data too large: %zu samples", data.size());
         return;
     }
 
@@ -97,20 +103,30 @@ void OSCSender::sendOSCMessage(const std::string& address, const std::vector<flo
     memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(port_);
-    dest_addr.sin_addr.s_addr = inet_addr(host_.c_str());
 
-    // Split large buffers into chunks that fit in UDP packets
-    const size_t chunk_size = 256; // Send 256 samples per message
+    // Use inet_pton for better address parsing
+    if (inet_pton(AF_INET, host_.c_str(), &dest_addr.sin_addr) <= 0) {
+        LOGE("Invalid host address: %s", host_.c_str());
+        return;
+    }
+
+    // Send smaller chunks to reduce memory pressure and network load
+    const size_t chunk_size = 128; // Reduced chunk size
     const size_t total_chunks = (data.size() + chunk_size - 1) / chunk_size;
+
+    // Limit number of chunks to prevent network flooding
+    if (total_chunks > 32) {
+        LOGE("Too many chunks required: %zu", total_chunks);
+        return;
+    }
 
     for (size_t chunk = 0; chunk < total_chunks; ++chunk) {
         size_t start_idx = chunk * chunk_size;
         size_t end_idx = std::min(start_idx + chunk_size, data.size());
-        size_t samples_in_chunk = end_idx - start_idx;
 
-        // Create message for this chunk
+        // Create message for this chunk with pre-allocated size
         std::string message;
-        message.reserve(1800); // ~256 * 7 chars per sample
+        message.reserve(900); // Conservative estimate for 128 samples
         message = address;
 
         // Add chunk info if multiple chunks
@@ -120,25 +136,30 @@ void OSCSender::sendOSCMessage(const std::string& address, const std::vector<flo
             message += " ";
         }
 
-        // Add samples with compact formatting
-        char buffer[8];
+        // Add samples with compact formatting - fixed buffer size
+        char buffer[16];
         for (size_t i = start_idx; i < end_idx; ++i) {
-            snprintf(buffer, sizeof(buffer), "%.3f ", data[i]);
-            message += buffer;
+            // Clamp values to prevent formatting issues
+            float sample = std::max(-1.0f, std::min(1.0f, data[i]));
+            int ret = snprintf(buffer, sizeof(buffer), "%.3f ", sample);
+            if (ret > 0 && ret < static_cast<int>(sizeof(buffer))) {
+                message += buffer;
+            }
         }
 
+        // Send with error checking
         ssize_t sent = sendto(socket_fd_, message.c_str(), message.length(), 0,
                              (struct sockaddr*)&dest_addr, sizeof(dest_addr));
 
         if (sent < 0) {
-            LOGE("Failed to send OSC message chunk %zu", chunk);
+            LOGE("Failed to send OSC message chunk %zu: errno=%d", chunk, errno);
             break;
         }
     }
 
 #ifdef DEBUG
     static int message_count = 0;
-    if (++message_count % 50 == 0) { // Log every 50th message
+    if (++message_count % 100 == 0) { // Log every 100th message
         LOGI("Sent OSC message #%d: %zu samples in %zu chunks",
              message_count, data.size(), total_chunks);
     }

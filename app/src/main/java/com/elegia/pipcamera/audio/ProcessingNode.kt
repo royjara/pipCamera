@@ -182,6 +182,10 @@ class SineGeneratorProcessor : NodeProcessor {
     private var isProcessingActive = false
     private var isStreamEnabled = false
 
+    // Synchronization for thread safety
+    private val cleanupLock = Any()
+    private var isCleaningUp = false
+
     companion object {
         // C Major scale frequencies (C4 to C5)
         val C_MAJOR_FREQUENCIES = listOf(
@@ -278,9 +282,40 @@ class SineGeneratorProcessor : NodeProcessor {
     }
 
     override suspend fun cleanup() {
-        stopProcessing()
-        audioProcessor.shutdown()
-        isInitialized = false
+        Log.d("SineGeneratorProcessor", "Cleaning up sine generator processor")
+
+        synchronized(cleanupLock) {
+            if (isCleaningUp) {
+                Log.w("SineGeneratorProcessor", "Cleanup already in progress")
+                return
+            }
+            isCleaningUp = true
+        }
+
+        try {
+            // First stop processing
+            stopProcessing()
+
+            // Wait a bit for threads to actually stop
+            Thread.sleep(50)
+
+            // Finally clean up native resources
+            synchronized(cleanupLock) {
+                try {
+                    if (isInitialized) {
+                        audioProcessor.shutdown()
+                        isInitialized = false
+                        Log.i("SineGeneratorProcessor", "AudioProcessor shutdown completed")
+                    }
+                } catch (e: Exception) {
+                    Log.e("SineGeneratorProcessor", "Error cleaning up audio processor", e)
+                }
+            }
+        } finally {
+            synchronized(cleanupLock) {
+                isCleaningUp = false
+            }
+        }
     }
 
     private fun startProcessing() {
@@ -295,13 +330,32 @@ class SineGeneratorProcessor : NodeProcessor {
 
             while (isProcessingActive && isInitialized) {
                 try {
+                    // Check if cleanup is happening - if so, exit immediately
+                    val shouldExit = synchronized(cleanupLock) {
+                        if (isCleaningUp) {
+                            Log.i("SineGeneratorProcessor", "Cleanup in progress, stopping processing thread")
+                            true
+                        } else false
+                    }
+                    if (shouldExit) break
+
                     // Only generate and send audio when streaming is enabled
                     if (isStreamEnabled) {
-                        audioProcessor.processAudio(
-                            inputBuffer = null,
-                            outputBuffer = outputBuffer,
-                            frameCount = 512
-                        )
+                        // Check again before native call - most critical section
+                        val shouldSkip = synchronized(cleanupLock) {
+                            if (isCleaningUp || !isInitialized) {
+                                Log.i("SineGeneratorProcessor", "Cleanup started, skipping audio processing")
+                                true
+                            } else {
+                                audioProcessor.processAudio(
+                                    inputBuffer = null,
+                                    outputBuffer = outputBuffer,
+                                    frameCount = 512
+                                )
+                                false
+                            }
+                        }
+                        if (shouldSkip) break
                     }
 
                     // Sleep for ~10ms (slightly faster to prevent buffer underruns)

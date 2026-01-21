@@ -4,6 +4,7 @@ import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import android.hardware.camera2.CaptureRequest
 import androidx.camera.core.Camera
@@ -14,6 +15,8 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCase
 import androidx.camera.core.SurfaceRequest
+import androidx.camera.core.DisplayOrientedMeteringPointFactory
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.Recorder
@@ -33,6 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import android.content.Context
 import android.graphics.SurfaceTexture
+import android.hardware.display.DisplayManager
 import android.media.ImageReader
 import android.util.Log
 import android.util.Size
@@ -42,8 +46,12 @@ import androidx.camera.core.ImageCaptureException
 import androidx.core.util.Consumer
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 
@@ -60,6 +68,9 @@ class CameraManager {
 
     private val _capabilities = MutableStateFlow<CameraCapabilities?>(null)
     val capabilities: StateFlow<CameraCapabilities?> = _capabilities
+
+    private val _camera = MutableStateFlow<Camera?>(null)
+    val camera: StateFlow<Camera?> = _camera
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
@@ -87,6 +98,13 @@ class CameraManager {
 
     private val _isAudioEnabled = MutableStateFlow(true)
     val isAudioEnabled: StateFlow<Boolean> = _isAudioEnabled
+
+    // Visual feedback states
+    private val _snapshotFeedback = MutableStateFlow(false)
+    val snapshotFeedback: StateFlow<Boolean> = _snapshotFeedback
+
+    private val _recordingIndicator = MutableStateFlow(false)
+    val recordingIndicator: StateFlow<Boolean> = _recordingIndicator
 
     private val _isGLEnabled = MutableStateFlow(false)
     val isGLEnabled: StateFlow<Boolean> = _isGLEnabled
@@ -360,6 +378,47 @@ class CameraManager {
         Log.d(TAG, "rotateFrameCounterclockwise: Frame rotation set to ${newRotation}°")
     }
 
+    // Capture Request Control Methods
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun updateAWBMode(mode: Int) {
+        try {
+            val captureRequestOptions = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, mode)
+                .build()
+            camera2Control?.addCaptureRequestOptions(captureRequestOptions)
+            Log.d(TAG, "updateAWBMode: Set AWB mode to $mode")
+        } catch (e: Exception) {
+            Log.e(TAG, "updateAWBMode: Failed to update AWB mode", e)
+        }
+    }
+
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun updateAFMode(mode: Int) {
+        try {
+            val captureRequestOptions = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, mode)
+                .build()
+            camera2Control?.addCaptureRequestOptions(captureRequestOptions)
+            Log.d(TAG, "updateAFMode: Set AF mode to $mode")
+        } catch (e: Exception) {
+            Log.e(TAG, "updateAFMode: Failed to update AF mode", e)
+        }
+    }
+
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun updateAEMode(mode: Int) {
+        try {
+            val captureRequestOptions = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, mode)
+                .build()
+            camera2Control?.addCaptureRequestOptions(captureRequestOptions)
+            Log.d(TAG, "updateAEMode: Set AE mode to $mode")
+        } catch (e: Exception) {
+            Log.e(TAG, "updateAEMode: Failed to update AE mode", e)
+        }
+    }
+
+
     fun enableAudioProcessing() {
         if (_isAudioProcessingEnabled.value) {
             Log.w(TAG, "enableAudioProcessing: Already enabled")
@@ -394,11 +453,20 @@ class CameraManager {
             ContextCompat.getMainExecutor(context!!),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    Toast.makeText(context, "Snapshot captured successfully!", Toast.LENGTH_SHORT).show()
+                    // Trigger visual feedback instead of toast
+                    _snapshotFeedback.value = true
+                    // Reset feedback after delay
+                    GlobalScope.launch {
+                        delay(200) // Brief color change
+                        _snapshotFeedback.value = false
+                    }
+                    Log.i(TAG, "Snapshot captured successfully: ${output.savedUri}")
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    // Keep error toasts as requested
                     Toast.makeText(context, "Snapshot capture failed", Toast.LENGTH_SHORT).show()
+                    Log.e(TAG, "Snapshot capture failed", exception)
                 }
             }
         )
@@ -435,19 +503,22 @@ class CameraManager {
                     is VideoRecordEvent.Start -> {
                         Log.d(TAG, "VideoRecordEvent: Recording started")
                         _isRecording.value = true
-                        Toast.makeText(context, "Video recording started: ${videoFile.name}", Toast.LENGTH_SHORT).show()
+                        _recordingIndicator.value = true
+                        Log.i(TAG, "Video recording started: ${videoFile.name}")
                     }
                     is VideoRecordEvent.Finalize -> {
                         Log.d(TAG, "VideoRecordEvent: Recording finalized, error=${recordEvent.error}")
                         _isRecording.value = false
+                        _recordingIndicator.value = false
                         activeRecording = null
 
                         if (recordEvent.error != VideoRecordEvent.Finalize.ERROR_NONE) {
                             Log.e(TAG, "VideoRecordEvent: Recording failed with error ${recordEvent.error}")
+                            // Keep error toasts as requested
                             Toast.makeText(context, "Video recording failed", Toast.LENGTH_SHORT).show()
                         } else {
                             Log.d(TAG, "VideoRecordEvent: Recording saved to ${recordEvent.outputResults.outputUri}")
-                            Toast.makeText(context, "Video recording saved", Toast.LENGTH_SHORT).show()
+                            // Remove success toast - visual feedback will be provided by red circle disappearing
                         }
                     }
                     is VideoRecordEvent.Status -> {
@@ -465,6 +536,7 @@ class CameraManager {
         } catch (e: Exception) {
             Log.e(TAG, "startVideoRecording: Failed to start recording", e)
             _isRecording.value = false
+            _recordingIndicator.value = false
             activeRecording = null
             Toast.makeText(context, "Failed to start video recording: ${e.message}", Toast.LENGTH_SHORT).show()
         }
@@ -484,6 +556,7 @@ class CameraManager {
         } catch (e: Exception) {
             Log.e(TAG, "stopVideoRecording: Error stopping recording", e)
             _isRecording.value = false
+            _recordingIndicator.value = false
             activeRecording = null
             Toast.makeText(context, "Error stopping video recording: ${e.message}", Toast.LENGTH_SHORT).show()
         }
@@ -530,13 +603,15 @@ class CameraManager {
                     Log.d(TAG, "rebindCamera: Total use cases to bind: ${useCases.size}")
 
                     Log.d(TAG, "rebindCamera: Binding ${useCases.size} use cases to lifecycle")
-                    val camera = cameraProvider?.bindToLifecycle(
+                    val cameraInstance = cameraProvider?.bindToLifecycle(
                         lifecycle,
                         selector,
                         *useCases.toTypedArray()
                     )
 
-                    camera?.let {
+                    _camera.value = cameraInstance
+
+                    cameraInstance?.let {
                         Log.d(TAG, "rebindCamera: Camera bound successfully, setting up interop controls")
                         camera2Control = Camera2CameraControl.from(it.cameraControl)
                         camera2Info = Camera2CameraInfo.from(it.cameraInfo)
@@ -574,6 +649,7 @@ class CameraManager {
         CaptureController.stopCaptureRequestStream()
         FrameProcessor.cleanup()
         cameraProvider?.unbindAll()
+        _camera.value = null
         _isReady.value = false
         _isAnalysisEnabled.value = false
         _isSnapshotEnabled.value = false
@@ -597,4 +673,35 @@ fun rememberCameraManager(): CameraManager {
     }
 
     return cameraManager
+}
+
+/**
+ * Stateless tap-to-focus function that doesn't depend on CameraManager state
+ */
+fun tapToFocus(camera: Camera, context: Context, displayId: Int, x: Float, y: Float, width: Int, height: Int) {
+    try {
+        // Create a factory that maps UI coordinates to Sensor coordinates
+        val display = (context as? android.app.Activity)?.display
+            ?: (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+                .getDisplay(displayId)
+
+        val factory = DisplayOrientedMeteringPointFactory(
+            display, // Use the display to handle rotation
+            camera.cameraInfo,
+            width.toFloat(),
+            height.toFloat()
+        )
+
+        // Create the point and action
+        val point = factory.createPoint(x, y)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+            .setAutoCancelDuration(3, TimeUnit.SECONDS) // AF stays locked for 3s
+            .build()
+
+        // Start the focus using regular CameraControl
+        camera.cameraControl.startFocusAndMetering(action)
+        Log.d("CLAUDE_TapToFocus", "Focus started at coordinates ($x, $y)")
+    } catch (e: Exception) {
+        Log.e("CLAUDE_TapToFocus", "Failed to start focus and metering", e)
+    }
 }

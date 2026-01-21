@@ -45,7 +45,7 @@ android {
         }
     }
 
-    ndkVersion = "25.1.8937393"
+    ndkVersion = "29.0.14206865"
 }
 
 dependencies {
@@ -58,6 +58,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+//    implementation("androidx.compose.material3:material3-icons-extended:1.10.1")
+    // Source: https://mvnrepository.com/artifact/androidx.compose.material/material-icons-extended
+    implementation(libs.androidx.material.icons.extended)
 
     // CameraX dependencies
     implementation(libs.androidx.camera.core)

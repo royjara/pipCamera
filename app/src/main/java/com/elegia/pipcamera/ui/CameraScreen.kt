@@ -22,12 +22,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.elegia.pipcamera.camera.rememberCameraManager
 import com.elegia.pipcamera.camera.CaptureController
+import com.elegia.pipcamera.camera.tapToFocus
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 fun CameraScreen(isPiPMode: Boolean = false) {
@@ -42,8 +46,11 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraManager = rememberCameraManager()
 
+//    val pipelineStateHolder = remember
+
     val capabilities by cameraManager.capabilities.collectAsState()
     val metering by CaptureController.currentMetering.collectAsState()
+    val camera by cameraManager.camera.collectAsState()
 
     var showAudioDemo by remember { mutableStateOf(false) }
 
@@ -80,7 +87,24 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
     ) {
         AndroidView(
             factory = { previewView },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        // Use stateless tap to focus function
+                        camera?.let { cameraInstance ->
+                            tapToFocus(
+                                camera = cameraInstance,
+                                context = context,
+                                displayId = 0, // Simplified for single display
+                                x = offset.x,
+                                y = offset.y,
+                                width = size.width,
+                                height = size.height
+                            )
+                        }
+                    }
+                }
         )
 
         // Metering info overlay
@@ -94,7 +118,8 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
         CameraToolbar(
             capabilities = capabilities,
             currentMetering = metering,
-            isPiPMode = isPiPMode
+            isPiPMode = isPiPMode,
+            cameraManager = cameraManager
         )
 
         // Surface toolbar
@@ -149,36 +174,27 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
                     cameraManager.startVideoRecording()
                 }
             },
-            onRotateClockwise = {
-                cameraManager.rotateFrameClockwise()
-            },
-            onRotateCounterclockwise = {
-                cameraManager.rotateFrameCounterclockwise()
-            },
-            onAudioDemoClick = {
-                showAudioDemo = true
-            },
             isRecording = cameraManager.isRecording.collectAsState().value,
             isSnapshotEnabled = cameraManager.isSnapshotEnabled.collectAsState().value,
             isVideoEnabled = cameraManager.isVideoEnabled.collectAsState().value,
-            isAnalysisEnabled = cameraManager.isAnalysisEnabled.collectAsState().value,
             isAudioEnabled = cameraManager.isAudioEnabled.collectAsState().value,
-            isGLEnabled = cameraManager.isGLEnabled.collectAsState().value
+            // NEW: Visual feedback states
+            snapshotFeedback = cameraManager.snapshotFeedback.collectAsState().value,
+            recordingIndicator = cameraManager.recordingIndicator.collectAsState().value
         )
-
-        // AGSL Shader overlay (when enabled) - smaller centered window
-        if (cameraManager.isGLEnabled.collectAsState().value && !isPiPMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            AGSLCameraOverlay(
-                isEnabled = true
-            )
-        }
-
     }
 
     // Audio Demo Modal
     if (showAudioDemo) {
         AudioDemoModal(
-            onDismiss = { showAudioDemo = false }
+            onDismiss = { showAudioDemo = false },
+            cameraManager = cameraManager
         )
     }
+}
+
+@Preview
+@Composable
+fun MockPreview(){
+
 }
