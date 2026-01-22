@@ -488,9 +488,6 @@ private fun AudioDemoModalContent(
                         )
                         3 -> ImagesTabComponent(
                             imageAnalysisEnabled = cameraManager?.isAnalysisEnabled?.collectAsState()?.value ?: false,
-                            selectedAlgorithm = imagesTabState.selectedAlgorithm,
-                            dimensions = imagesTabState.dimensions,
-                            learningRate = imagesTabState.learningRate,
                             onImageAnalysisToggle = { enabled ->
                                 if (enabled) {
                                     cameraManager?.enableAnalysis()
@@ -498,9 +495,6 @@ private fun AudioDemoModalContent(
                                     cameraManager?.disableAnalysis()
                                 }
                             },
-                            onAlgorithmChange = audioDemoManager::updateAlgorithm,
-                            onDimensionsChange = audioDemoManager::updateDimensions,
-                            onLearningRateChange = audioDemoManager::updateLearningRate,
                             cameraManager = cameraManager
                         )
                     }

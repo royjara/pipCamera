@@ -1,6 +1,7 @@
 package com.elegia.pipcamera.ui.pipelineMenus
 
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,8 +20,10 @@ import androidx.compose.ui.unit.sp
 import com.elegia.pipcamera.camera.CameraManager
 import com.elegia.pipcamera.camera.FrameProcessor
 import com.elegia.pipcamera.ml.ProcessorRegistry
+import com.elegia.pipcamera.ml.FeatureProcessingFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.rememberCoroutineScope
 
 /**
  * Images Tab - Fourth tab with Weka ML processing and debug console
@@ -28,18 +31,31 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun ImagesTabComponent(
     imageAnalysisEnabled: Boolean,
-    selectedAlgorithm: String,
-    dimensions: Int,
-    learningRate: Float,
     onImageAnalysisToggle: (Boolean) -> Unit,
-    onAlgorithmChange: (String) -> Unit,
-    onDimensionsChange: (Int) -> Unit,
-    onLearningRateChange: (Float) -> Unit,
     cameraManager: CameraManager? = null // Add camera manager to check frame availability
 ) {
     var wekaOutputConsole by remember { mutableStateOf("Weka output will appear here...") }
     var sharedFeatures by remember { mutableStateOf(listOf<Float>()) }
     var selectedProcessor by remember { mutableStateOf("Weighted Sum") }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Initialize the feature processing flow
+    LaunchedEffect(Unit) {
+        FeatureProcessingFlow.initialize(coroutineScope)
+    }
+
+    // Publish features to the processing stream
+    LaunchedEffect(sharedFeatures) {
+        if (sharedFeatures.isNotEmpty()) {
+            Log.d("TARGET", "Publishing features: $sharedFeatures")
+            FeatureProcessingFlow.publishFeatures(sharedFeatures)
+        }
+    }
+
+    // Update processor when selection changes
+    LaunchedEffect(selectedProcessor) {
+        FeatureProcessingFlow.setProcessor(selectedProcessor)
+    }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -121,29 +137,8 @@ fun ImagesTabComponent(
             WekaOutputConsole(
                 outputText = wekaOutputConsole,
                 onUpdateConsole = { wekaOutputConsole = it },
-                inputFeatures = sharedFeatures,
                 selectedProcessor = selectedProcessor
             )
-            // Weka Configuration
-            WekaConfigurationCard(
-                selectedAlgorithm = selectedAlgorithm,
-                dimensions = dimensions,
-                learningRate = learningRate,
-                onAlgorithmChange = onAlgorithmChange,
-                onDimensionsChange = onDimensionsChange,
-                onLearningRateChange = onLearningRateChange
-            )
-
-            // Processor Selection
-            ProcessorSelectionCard(
-                selectedProcessor = selectedProcessor,
-                onProcessorChange = { processorName ->
-                    selectedProcessor = processorName
-                    ProcessorRegistry.setCurrentProcessor(processorName)
-                }
-            )
-
-
         }
     }
 }
@@ -180,21 +175,6 @@ private fun WekaInputVisualizationCard(
         } else {
             currentCameraFrame = null
             cameraFrameCounter = 0
-        }
-    }
-
-    // Simulate frame processing
-    LaunchedEffect(simulateProcessing) {
-        if (simulateProcessing) {
-            while (simulateProcessing) {
-                frameCounter++
-                // Simulate random feature extraction from camera frames
-                currentFeatures = List(8) {
-                    (Math.random() * 2 - 1).toFloat() // Random values between -1 and 1
-                }
-                onFeaturesExtracted(currentFeatures)
-                delay(100) // 10 FPS simulation
-            }
         }
     }
 
@@ -401,7 +381,7 @@ private fun WekaInputVisualizationCard(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Extracted Features (First 8):",
+                            text = "Extracted Features (First ${currentFeatures.size}):",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
@@ -457,207 +437,13 @@ private fun WekaInputVisualizationCard(
             // Processing info
             Text(
                 text = if (currentCameraFrame != null) {
-                    "Live camera frames (100x100px) are being processed for ML feature extraction. Real frame data is used for Weka analysis."
+                    "live frames (100x100px) are being processed. Real frame data is used for Weka analysis."
                 } else {
-                    "Enable camera analysis from the Surface toolbar to show live frames. Currently showing simulation mode."
+                    "Enable camera analysis . Currently showing simulation mode."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-/**
- * Weka Configuration Card
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun WekaConfigurationCard(
-    selectedAlgorithm: String,
-    dimensions: Int,
-    learningRate: Float,
-    onAlgorithmChange: (String) -> Unit,
-    onDimensionsChange: (Int) -> Unit,
-    onLearningRateChange: (Float) -> Unit
-) {
-    val algorithms = listOf("J48", "RandomForest", "NaiveBayes", "SVM", "KMeans")
-    var algorithmExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Weka ML Configuration",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            // Algorithm Dropdown
-            ExposedDropdownMenuBox(
-                expanded = algorithmExpanded,
-                onExpandedChange = { algorithmExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = selectedAlgorithm,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("ML Algorithm") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = algorithmExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                )
-
-                ExposedDropdownMenu(
-                    expanded = algorithmExpanded,
-                    onDismissRequest = { algorithmExpanded = false }
-                ) {
-                    algorithms.forEach { algorithm ->
-                        DropdownMenuItem(
-                            text = { Text(algorithm) },
-                            onClick = {
-                                onAlgorithmChange(algorithm)
-                                algorithmExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            // Dimensions Slider
-            Column {
-                Text(
-                    text = "Feature Dimensions: $dimensions",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Slider(
-                    value = dimensions.toFloat(),
-                    onValueChange = { onDimensionsChange(it.toInt()) },
-                    valueRange = 5f..50f,
-                    steps = 44
-                )
-            }
-
-            // Learning Rate Slider
-            Column {
-                Text(
-                    text = "Learning Rate: %.3f".format(learningRate),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Slider(
-                    value = learningRate,
-                    onValueChange = onLearningRateChange,
-                    valueRange = 0.001f..1.0f
-                )
-            }
-        }
-    }
-}
-
-/**
- * Processor Selection Card
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProcessorSelectionCard(
-    selectedProcessor: String,
-    onProcessorChange: (String) -> Unit
-) {
-    var processorExpanded by remember { mutableStateOf(false) }
-    val availableProcessors = ProcessorRegistry.getAvailableProcessorNames()
-    val allProcessors = ProcessorRegistry.getProcessorNames()
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "ML Processor Selection",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            // Processor Dropdown
-            ExposedDropdownMenuBox(
-                expanded = processorExpanded,
-                onExpandedChange = { processorExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = selectedProcessor,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Processor") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = processorExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(),
-                    supportingText = {
-                        val processor = ProcessorRegistry.getProcessor(selectedProcessor)
-                        Text(
-                            text = processor?.description ?: "Unknown processor",
-                            color = if (processor?.isAvailable == true)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.error
-                        )
-                    }
-                )
-
-                ExposedDropdownMenu(
-                    expanded = processorExpanded,
-                    onDismissRequest = { processorExpanded = false }
-                ) {
-                    allProcessors.forEach { processorName ->
-                        val processor = ProcessorRegistry.getProcessor(processorName)
-                        val isAvailable = processor?.isAvailable == true
-
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = processorName,
-                                        color = if (isAvailable)
-                                            MaterialTheme.colorScheme.onSurface
-                                        else
-                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                    if (!isAvailable) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "(Not Available)",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                if (isAvailable) {
-                                    onProcessorChange(processorName)
-                                    processorExpanded = false
-                                }
-                            },
-                            enabled = isAvailable
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -669,24 +455,19 @@ private fun ProcessorSelectionCard(
 private fun WekaOutputConsole(
     outputText: String,
     onUpdateConsole: (String) -> Unit,
-    inputFeatures: List<Float>,
     selectedProcessor: String
 ) {
     var scalarOutput by remember { mutableStateOf(0.0f) }
     var isProcessing by remember { mutableStateOf(false) }
+    var lastProcessedResult by remember { mutableStateOf<FeatureProcessingFlow.ProcessedResult?>(null) }
 
-    // Calculate scalar output from input features using selected processor
-    LaunchedEffect(inputFeatures, isProcessing, selectedProcessor) {
-        if (isProcessing) {
-            while (isProcessing) {
-                try {
-                    // Use the processor registry to process features
-                    scalarOutput = ProcessorRegistry.processFeatures(inputFeatures)
-                } catch (e: Exception) {
-                    // Fallback to random when processing fails
-                    scalarOutput = (Math.random() * 2 - 1).toFloat()
-                }
-                delay(150) // Update every 150ms
+    // Collect processed results from the feature processing stream
+    LaunchedEffect(Unit) {
+        FeatureProcessingFlow.processedOutput.collect { result ->
+            if (isProcessing) {
+                scalarOutput = result.processedValue
+                lastProcessedResult = result
+                Log.d("WekaOutputConsole", "Received processed result: ${result.processedValue} from ${result.processorName}")
             }
         }
     }
@@ -830,7 +611,11 @@ private fun WekaOutputConsole(
             }
 
             Text(
-                text = "Processor: $selectedProcessor - reduces input features to single value in range [-1, 1]",
+                text = if (lastProcessedResult != null) {
+                    "Processor: ${lastProcessedResult!!.processorName} - Last processed: ${String.format("%.3f", lastProcessedResult!!.processedValue)} from ${lastProcessedResult!!.originalFeatures.size} features"
+                } else {
+                    "Processor: $selectedProcessor - waiting for features to process"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -849,7 +634,7 @@ private fun resizeBitmap(bitmap: Bitmap, width: Int, height: Int): Bitmap {
  * Extract mock features from a real camera bitmap
  * This simulates what a real ML feature extractor would do
  */
-private fun extractMockFeaturesFromBitmap(bitmap: Bitmap): List<Float> {
+private fun extractMockFeaturesFromBitmap(bitmap: Bitmap, featureCount: Int = 3): List<Float> {
     val features = mutableListOf<Float>()
 
     try {
@@ -935,5 +720,5 @@ private fun extractMockFeaturesFromBitmap(bitmap: Bitmap): List<Float> {
         }
     }
 
-    return features.take(8) // Return first 8 features
+    return features.take(featureCount) // Return first 8 features
 }
