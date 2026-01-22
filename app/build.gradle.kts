@@ -68,6 +68,10 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.lifecycle.runtime.compose)
+
+    // Weka ML library - commented out due to dependency conflicts
+    // TODO: Consider using Weka for Android or custom integration
+    // implementation("nz.ac.waikato.cms.weka:weka-stable:3.8.6")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

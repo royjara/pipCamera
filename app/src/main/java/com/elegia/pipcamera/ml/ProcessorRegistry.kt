@@ -23,6 +23,13 @@ object ProcessorRegistry {
         registerProcessor(StatisticalProcessor())
         registerProcessor(FrequencyDomainProcessor())
 
+        // Register Weka processors
+        registerProcessor(WekaImageProcessor(WekaImageProcessor.WekaAlgorithm.J48))
+        registerProcessor(WekaImageProcessor(WekaImageProcessor.WekaAlgorithm.NAIVE_BAYES))
+        registerProcessor(WekaImageProcessor(WekaImageProcessor.WekaAlgorithm.RANDOM_FOREST))
+        registerProcessor(WekaImageProcessor(WekaImageProcessor.WekaAlgorithm.SVM))
+        registerProcessor(WekaImageProcessor(WekaImageProcessor.WekaAlgorithm.K_MEANS, WekaImageProcessor.ProcessingMode.CLUSTERING))
+
         // Set default processor
         setCurrentProcessor("Weighted Sum")
     }
