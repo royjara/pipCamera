@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elegia.pipcamera.camera.CameraManager
 import com.elegia.pipcamera.camera.FrameProcessor
+import com.elegia.pipcamera.ml.ProcessorRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
@@ -38,6 +39,7 @@ fun ImagesTabComponent(
 ) {
     var wekaOutputConsole by remember { mutableStateOf("Weka output will appear here...") }
     var sharedFeatures by remember { mutableStateOf(listOf<Float>()) }
+    var selectedProcessor by remember { mutableStateOf("Weighted Sum") }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -119,7 +121,8 @@ fun ImagesTabComponent(
             WekaOutputConsole(
                 outputText = wekaOutputConsole,
                 onUpdateConsole = { wekaOutputConsole = it },
-                inputFeatures = sharedFeatures
+                inputFeatures = sharedFeatures,
+                selectedProcessor = selectedProcessor
             )
             // Weka Configuration
             WekaConfigurationCard(
@@ -129,6 +132,15 @@ fun ImagesTabComponent(
                 onAlgorithmChange = onAlgorithmChange,
                 onDimensionsChange = onDimensionsChange,
                 onLearningRateChange = onLearningRateChange
+            )
+
+            // Processor Selection
+            ProcessorSelectionCard(
+                selectedProcessor = selectedProcessor,
+                onProcessorChange = { processorName ->
+                    selectedProcessor = processorName
+                    ProcessorRegistry.setCurrentProcessor(processorName)
+                }
             )
 
 
@@ -551,34 +563,130 @@ private fun WekaConfigurationCard(
 }
 
 /**
+ * Processor Selection Card
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProcessorSelectionCard(
+    selectedProcessor: String,
+    onProcessorChange: (String) -> Unit
+) {
+    var processorExpanded by remember { mutableStateOf(false) }
+    val availableProcessors = ProcessorRegistry.getAvailableProcessorNames()
+    val allProcessors = ProcessorRegistry.getProcessorNames()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "ML Processor Selection",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Processor Dropdown
+            ExposedDropdownMenuBox(
+                expanded = processorExpanded,
+                onExpandedChange = { processorExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedProcessor,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Processor") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = processorExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    supportingText = {
+                        val processor = ProcessorRegistry.getProcessor(selectedProcessor)
+                        Text(
+                            text = processor?.description ?: "Unknown processor",
+                            color = if (processor?.isAvailable == true)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                    }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = processorExpanded,
+                    onDismissRequest = { processorExpanded = false }
+                ) {
+                    allProcessors.forEach { processorName ->
+                        val processor = ProcessorRegistry.getProcessor(processorName)
+                        val isAvailable = processor?.isAvailable == true
+
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = processorName,
+                                        color = if (isAvailable)
+                                            MaterialTheme.colorScheme.onSurface
+                                        else
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                    if (!isAvailable) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "(Not Available)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                if (isAvailable) {
+                                    onProcessorChange(processorName)
+                                    processorExpanded = false
+                                }
+                            },
+                            enabled = isAvailable
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Weka Output Console with single scalar bar visualization
  */
 @Composable
 private fun WekaOutputConsole(
     outputText: String,
     onUpdateConsole: (String) -> Unit,
-    inputFeatures: List<Float>
+    inputFeatures: List<Float>,
+    selectedProcessor: String
 ) {
     var scalarOutput by remember { mutableStateOf(0.0f) }
     var isProcessing by remember { mutableStateOf(false) }
 
-    // Calculate scalar output from input features
-    LaunchedEffect(inputFeatures, isProcessing) {
-        if (isProcessing && inputFeatures.isNotEmpty()) {
+    // Calculate scalar output from input features using selected processor
+    LaunchedEffect(inputFeatures, isProcessing, selectedProcessor) {
+        if (isProcessing) {
             while (isProcessing) {
-                // Use actual features to calculate scalar output
-                // Simple weighted sum of features as a mock ML model
-                val weights = listOf(0.3f, 0.2f, 0.1f, 0.15f, 0.1f, 0.05f, 0.05f, 0.05f)
-                scalarOutput = inputFeatures.take(8).mapIndexed { index, feature ->
-                    feature * weights.getOrElse(index) { 0.1f }
-                }.sum().coerceIn(-1f, 1f)
+                try {
+                    // Use the processor registry to process features
+                    scalarOutput = ProcessorRegistry.processFeatures(inputFeatures)
+                } catch (e: Exception) {
+                    // Fallback to random when processing fails
+                    scalarOutput = (Math.random() * 2 - 1).toFloat()
+                }
                 delay(150) // Update every 150ms
-            }
-        } else if (isProcessing) {
-            while (isProcessing) {
-                // Fallback to random when no features available
-                scalarOutput = (Math.random() * 2 - 1).toFloat()
-                delay(150)
             }
         }
     }
@@ -722,7 +830,7 @@ private fun WekaOutputConsole(
             }
 
             Text(
-                text = "Simple scalar model output: reduces input features to single value in range [-1, 1]",
+                text = "Processor: $selectedProcessor - reduces input features to single value in range [-1, 1]",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
