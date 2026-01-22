@@ -37,6 +37,7 @@ fun ImagesTabComponent(
     cameraManager: CameraManager? = null // Add camera manager to check frame availability
 ) {
     var wekaOutputConsole by remember { mutableStateOf("Weka output will appear here...") }
+    var sharedFeatures by remember { mutableStateOf(listOf<Float>()) }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -104,11 +105,22 @@ fun ImagesTabComponent(
         if (imageAnalysisEnabled) {
             // Input Visualization with real camera frames when available
             if (cameraManager != null) {
-                WekaInputVisualizationCard(cameraManager = cameraManager)
+                WekaInputVisualizationCard(
+                    cameraManager = cameraManager,
+                    onFeaturesExtracted = { features -> sharedFeatures = features }
+                )
             } else {
-                WekaInputVisualizationCard(cameraManager = null)
+                WekaInputVisualizationCard(
+                    cameraManager = null,
+                    onFeaturesExtracted = { features -> sharedFeatures = features }
+                )
             }
-
+            // Weka Output Debug Console
+            WekaOutputConsole(
+                outputText = wekaOutputConsole,
+                onUpdateConsole = { wekaOutputConsole = it },
+                inputFeatures = sharedFeatures
+            )
             // Weka Configuration
             WekaConfigurationCard(
                 selectedAlgorithm = selectedAlgorithm,
@@ -119,11 +131,7 @@ fun ImagesTabComponent(
                 onLearningRateChange = onLearningRateChange
             )
 
-            // Weka Output Debug Console
-            WekaOutputConsole(
-                outputText = wekaOutputConsole,
-                onUpdateConsole = { wekaOutputConsole = it }
-            )
+
         }
     }
 }
@@ -133,7 +141,8 @@ fun ImagesTabComponent(
  */
 @Composable
 private fun WekaInputVisualizationCard(
-    cameraManager: CameraManager?
+    cameraManager: CameraManager?,
+    onFeaturesExtracted: (List<Float>) -> Unit
 ) {
     var simulateProcessing by remember { mutableStateOf(false) }
     var frameCounter by remember { mutableStateOf(0) }
@@ -154,6 +163,7 @@ private fun WekaInputVisualizationCard(
 
                 // Extract mock features from the frame
                 currentFeatures = extractMockFeaturesFromBitmap(currentCameraFrame!!)
+                onFeaturesExtracted(currentFeatures)
             }
         } else {
             currentCameraFrame = null
@@ -170,6 +180,7 @@ private fun WekaInputVisualizationCard(
                 currentFeatures = List(8) {
                     (Math.random() * 2 - 1).toFloat() // Random values between -1 and 1
                 }
+                onFeaturesExtracted(currentFeatures)
                 delay(100) // 10 FPS simulation
             }
         }
@@ -540,13 +551,38 @@ private fun WekaConfigurationCard(
 }
 
 /**
- * Weka Output Console with training controls
+ * Weka Output Console with single scalar bar visualization
  */
 @Composable
 private fun WekaOutputConsole(
     outputText: String,
-    onUpdateConsole: (String) -> Unit
+    onUpdateConsole: (String) -> Unit,
+    inputFeatures: List<Float>
 ) {
+    var scalarOutput by remember { mutableStateOf(0.0f) }
+    var isProcessing by remember { mutableStateOf(false) }
+
+    // Calculate scalar output from input features
+    LaunchedEffect(inputFeatures, isProcessing) {
+        if (isProcessing && inputFeatures.isNotEmpty()) {
+            while (isProcessing) {
+                // Use actual features to calculate scalar output
+                // Simple weighted sum of features as a mock ML model
+                val weights = listOf(0.3f, 0.2f, 0.1f, 0.15f, 0.1f, 0.05f, 0.05f, 0.05f)
+                scalarOutput = inputFeatures.take(8).mapIndexed { index, feature ->
+                    feature * weights.getOrElse(index) { 0.1f }
+                }.sum().coerceIn(-1f, 1f)
+                delay(150) // Update every 150ms
+            }
+        } else if (isProcessing) {
+            while (isProcessing) {
+                // Fallback to random when no features available
+                scalarOutput = (Math.random() * 2 - 1).toFloat()
+                delay(150)
+            }
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -561,68 +597,118 @@ private fun WekaOutputConsole(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Weka Debug Output",
+                text = "Weka Output Visualization",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
 
-            // Debug Console
+            // Single Scalar Bar Visualization
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp),
+                    .height(80.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface
-                ),
-                shape = RoundedCornerShape(8.dp)
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp)
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = outputText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        modifier = Modifier.fillMaxSize()
+                        text = "Model Output (Scalar):",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
+
+                    // Single scalar output bar (similar to forEach structure from input visualization)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Out",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.width(30.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(16.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth((kotlin.math.abs(scalarOutput) * 0.5f + 0.5f).coerceIn(0f, 1f))
+                                    .background(
+                                        color = if (scalarOutput >= 0)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.error,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = String.format("%.3f", scalarOutput),
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.width(60.dp),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 
-            // Training Control Buttons
+            // Control Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
                     onClick = {
-                        // Simulate adding training data
-                        onUpdateConsole("Added training sample: [0.234, -0.156, 0.892, 0.445]\nTotal samples: 42")
+                        isProcessing = !isProcessing
+                        if (isProcessing) {
+                            onUpdateConsole("Model processing started...")
+                        } else {
+                            onUpdateConsole("Model processing stopped.")
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
+                        containerColor = if (isProcessing)
+                            MaterialTheme.colorScheme.error
+                        else
+                            MaterialTheme.colorScheme.primary
                     )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        imageVector = if (isProcessing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add Training Data", fontSize = 12.sp)
+                    Text(
+                        text = if (isProcessing) "Stop" else "Start",
+                        fontSize = 12.sp
+                    )
                 }
 
                 Button(
                     onClick = {
-                        // Simulate training and model update
-                        onUpdateConsole("Training model...\nAccuracy: 94.2%\nFirst 4 features: [0.123, -0.456, 0.789, -0.234]\nModel updated successfully!")
+                        scalarOutput = 0.0f
+                        onUpdateConsole("Model output reset to 0.000")
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = MaterialTheme.colorScheme.secondary
                     )
                 ) {
                     Icon(
@@ -631,12 +717,12 @@ private fun WekaOutputConsole(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Train & Update", fontSize = 12.sp)
+                    Text("Reset", fontSize = 12.sp)
                 }
             }
 
             Text(
-                text = "First 4 numbers from Weka processing will display here along with model training results.",
+                text = "Simple scalar model output: reduces input features to single value in range [-1, 1]",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
