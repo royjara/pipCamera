@@ -600,23 +600,23 @@ private fun WekaOutputConsole(
     // Collect processed results from the feature processing stream
     LaunchedEffect(processor) {
         FeatureProcessingFlow.processedOutput.collect { result ->
-            if (isProcessing) {
-                // Apply additional processor if provided
-                val finalValue = try {
-                    val processorResult = processor(result.processedValue)
-                    when (processorResult) {
-                        is Number -> processorResult.toFloat()
-                        else -> result.processedValue
-                    }
-                } catch (e: Exception) {
-                    Log.w("WekaOutputConsole", "Processor function failed, using original value", e)
-                    result.processedValue
+            // Always update the output, regardless of isProcessing state
+            // Apply additional processor if provided
+            val finalValue = try {
+                // Pass the original features to the processor, not the processed value
+                val processorResult = processor(result.originalFeatures)
+                when (processorResult) {
+                    is Number -> processorResult.toFloat()
+                    else -> result.processedValue
                 }
-
-                scalarOutput = finalValue.coerceIn(-1f, 1f)
-                lastProcessedResult = result.copy(processedValue = finalValue)
-                Log.d("WekaOutputConsole", "Processed result: ${finalValue} (original: ${result.processedValue}) from ${result.processorName}")
+            } catch (e: Exception) {
+                Log.w("WekaOutputConsole", "Processor function failed, using original value", e)
+                result.processedValue
             }
+
+            scalarOutput = finalValue.coerceIn(-1f, 1f)
+            lastProcessedResult = result.copy(processedValue = finalValue)
+            Log.d("WekaOutputConsole", "Updated result: ${finalValue} (original: ${result.processedValue}) from ${result.processorName}")
         }
     }
 
