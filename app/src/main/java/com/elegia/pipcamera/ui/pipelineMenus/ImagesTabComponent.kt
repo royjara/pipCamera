@@ -21,6 +21,8 @@ import com.elegia.pipcamera.camera.CameraManager
 import com.elegia.pipcamera.camera.FrameProcessor
 import com.elegia.pipcamera.ml.ProcessorRegistry
 import com.elegia.pipcamera.ml.FeatureProcessingFlow
+import com.elegia.pipcamera.ml.ProcessorFunctions
+import com.elegia.pipcamera.ml.ProcessorFunction
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,6 +39,7 @@ fun ImagesTabComponent(
     var wekaOutputConsole by remember { mutableStateOf("Weka output will appear here...") }
     var sharedFeatures by remember { mutableStateOf(listOf<Float>()) }
     var selectedProcessor by remember { mutableStateOf("Weighted Sum") }
+    var currentProcessor by remember { mutableStateOf<ProcessorFunction>(ProcessorFunctions.weightedSumProcessor) }
     val coroutineScope = rememberCoroutineScope()
 
     // Initialize the feature processing flow
@@ -54,7 +57,20 @@ fun ImagesTabComponent(
 
     // Update processor when selection changes
     LaunchedEffect(selectedProcessor) {
-        FeatureProcessingFlow.setProcessor(selectedProcessor)
+        when (selectedProcessor) {
+            "Reset (Bypass)" -> {
+                FeatureProcessingFlow.resetProcessor()
+                currentProcessor = ProcessorFunctions.resetProcessor
+            }
+            "Weighted Sum" -> {
+                FeatureProcessingFlow.setWeightedSumProcessor()
+                currentProcessor = ProcessorFunctions.weightedSumProcessor
+            }
+            else -> {
+                FeatureProcessingFlow.setProcessorByName(selectedProcessor)
+                currentProcessor = ProcessorFunctions.registryProcessor
+            }
+        }
     }
 
     Column(
@@ -133,11 +149,31 @@ fun ImagesTabComponent(
                     onFeaturesExtracted = { features -> sharedFeatures = features }
                 )
             }
+
+            // Processor Selection
+            ProcessorSelectionCard(
+                selectedProcessor = selectedProcessor,
+                onProcessorChange = { processorName ->
+                    selectedProcessor = processorName
+                }
+            )
+
             // Weka Output Debug Console
             WekaOutputConsole(
                 outputText = wekaOutputConsole,
                 onUpdateConsole = { wekaOutputConsole = it },
-                selectedProcessor = selectedProcessor
+                selectedProcessor = selectedProcessor,
+                processor = { input ->
+                    // Custom processor wrapper - can be used for additional processing
+                    when (input) {
+                        is List<*> -> {
+                            @Suppress("UNCHECKED_CAST")
+                            val features = input as List<Float>
+                            currentProcessor(features)
+                        }
+                        else -> 0f
+                    }
+                }
             )
         }
     }
@@ -449,25 +485,137 @@ private fun WekaInputVisualizationCard(
 }
 
 /**
+ * Processor Selection Card
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProcessorSelectionCard(
+    selectedProcessor: String,
+    onProcessorChange: (String) -> Unit
+) {
+    var processorExpanded by remember { mutableStateOf(false) }
+    val availableProcessors = listOf(
+        "Weighted Sum",
+        "Reset (Bypass)",
+        "Weka J48",
+        "Weka NAIVE_BAYES",
+        "Weka RANDOM_FOREST",
+        "Weka SVM",
+        "Weka K_MEANS"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "ML Processor Selection",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Processor Dropdown
+            ExposedDropdownMenuBox(
+                expanded = processorExpanded,
+                onExpandedChange = { processorExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedProcessor,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Processor") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = processorExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    supportingText = {
+                        Text(
+                            text = when (selectedProcessor) {
+                                "Weighted Sum" -> "Simple weighted sum of features"
+                                "Reset (Bypass)" -> "Bypass processing - returns first feature"
+                                else -> "Advanced ML algorithm processing"
+                            },
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = processorExpanded,
+                    onDismissRequest = { processorExpanded = false }
+                ) {
+                    availableProcessors.forEach { processorName ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = processorName,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (processorName == "Reset (Bypass)") {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                onProcessorChange(processorName)
+                                processorExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Weka Output Console with single scalar bar visualization
  */
 @Composable
 private fun WekaOutputConsole(
     outputText: String,
     onUpdateConsole: (String) -> Unit,
-    selectedProcessor: String
+    selectedProcessor: String,
+    processor: (Any) -> Any
 ) {
     var scalarOutput by remember { mutableStateOf(0.0f) }
     var isProcessing by remember { mutableStateOf(false) }
     var lastProcessedResult by remember { mutableStateOf<FeatureProcessingFlow.ProcessedResult?>(null) }
 
     // Collect processed results from the feature processing stream
-    LaunchedEffect(Unit) {
+    LaunchedEffect(processor) {
         FeatureProcessingFlow.processedOutput.collect { result ->
             if (isProcessing) {
-                scalarOutput = result.processedValue
-                lastProcessedResult = result
-                Log.d("WekaOutputConsole", "Received processed result: ${result.processedValue} from ${result.processorName}")
+                // Apply additional processor if provided
+                val finalValue = try {
+                    val processorResult = processor(result.processedValue)
+                    when (processorResult) {
+                        is Number -> processorResult.toFloat()
+                        else -> result.processedValue
+                    }
+                } catch (e: Exception) {
+                    Log.w("WekaOutputConsole", "Processor function failed, using original value", e)
+                    result.processedValue
+                }
+
+                scalarOutput = finalValue.coerceIn(-1f, 1f)
+                lastProcessedResult = result.copy(processedValue = finalValue)
+                Log.d("WekaOutputConsole", "Processed result: ${finalValue} (original: ${result.processedValue}) from ${result.processorName}")
             }
         }
     }
@@ -612,7 +760,7 @@ private fun WekaOutputConsole(
 
             Text(
                 text = if (lastProcessedResult != null) {
-                    "Processor: ${lastProcessedResult!!.processorName} - Last processed: ${String.format("%.3f", lastProcessedResult!!.processedValue)} from ${lastProcessedResult!!.originalFeatures.size} features"
+                    "Processor: ${lastProcessedResult!!.processorName} - Last processed: ${String.format("%.3f", lastProcessedResult!!.processedValue)} from ${lastProcessedResult!!.originalFeatures.size} features${if (lastProcessedResult!!.hasChanged()) " (post-processed)" else ""}"
                 } else {
                     "Processor: $selectedProcessor - waiting for features to process"
                 },
