@@ -37,7 +37,7 @@ fun CameraToolbar(
 ) {
     var showDebugScreen by remember { mutableStateOf(false) }
     var showMenuPopup by remember { mutableStateOf(false) }
-    var showPipelineMenu by remember {mutableStateOf(false)}
+    var showOSCConfig by remember { mutableStateOf(false) }
 
     if (!isPiPMode && capabilities != null) {
         // Bottom toolbar - always visible
@@ -45,7 +45,7 @@ fun CameraToolbar(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter
         ) {
-            // Bottom toolbar with 3 buttons
+            // Bottom toolbar with 4 buttons
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -89,27 +89,45 @@ fun CameraToolbar(
                         }
                     }
 
-                    // Middle button - Settings/Controls
-                    Box(modifier = Modifier.weight(1f)) {
-                        FloatingActionButton(
-                            onClick = { showPipelineMenu = ! showPipelineMenu },
-                            modifier = Modifier.fillMaxWidth()
-//                                .weight(1f)
-                                .height(48.dp),
-                            containerColor = MaterialTheme.colorScheme.primary
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                modifier = Modifier.size(20.dp)
-                            )
-                            if( showPipelineMenu) {
-                                AudioDemoModal(
-                                    onDismiss = {showPipelineMenu = false},
-                                    cameraManager = cameraManager
-                                )
-                            }
-                        }
+                    // OSC Config button
+                    FloatingActionButton(
+                        onClick = { showOSCConfig = !showOSCConfig },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        containerColor = if (showOSCConfig)
+                            MaterialTheme.colorScheme.tertiary
+                        else
+                            MaterialTheme.colorScheme.primary
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "OSC Config",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Camera toggle button
+                    FloatingActionButton(
+                        onClick = {
+                            cameraManager?.toggleCamera()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        containerColor = if (cameraManager?.isFrontCamera?.collectAsState()?.value == true)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Icon(
+                            imageVector = if (cameraManager?.isFrontCamera?.collectAsState()?.value == true)
+                                Icons.Default.Face
+                            else
+                                Icons.Default.CameraRear,
+                            contentDescription = "Toggle Camera",
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
                     // Right button - Debug toggle
@@ -140,6 +158,14 @@ fun CameraToolbar(
                 onDismiss = { showDebugScreen = false }
             )
         }
+
+        // OSC Config Modal
+        if (showOSCConfig) {
+            OSCConfigModal(
+                onDismiss = { showOSCConfig = false },
+                cameraManager = cameraManager
+            )
+        }
     }
 }
 
@@ -148,6 +174,7 @@ private fun DebugPopup(
     currentMetering: CameraMetering?,
     onDismiss: () -> Unit
 ) {
+    var filterText by remember { mutableStateOf("") }
     Popup(
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)
@@ -171,21 +198,41 @@ private fun DebugPopup(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
+                // Filter input
+                OutlinedTextField(
+                    value = filterText,
+                    onValueChange = { filterText = it },
+                    label = { Text("Filter keys") },
+                    placeholder = { Text("e.g. AWB, FOCUS, EXPOSURE") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
                 // Scrollable Content
                 LazyColumn(
                     modifier = Modifier.heightIn(max = 400.dp).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     currentMetering?.let { metering ->
-                        // Show all dynamic capture keys from reflection
-                        metering.allCaptureKeys.forEach { (keyName, value) ->
+                        val filteredKeys = metering.getFilteredKeys(filterText)
+
+                        // Show filtered capture keys
+                        filteredKeys.forEach { (keyName, value) ->
                             item {
                                 CaptureKeyValueRow(keyName, value)
                             }
                         }
 
-                        // If no keys found, show fallback message
-                        if (metering.allCaptureKeys.isEmpty()) {
+                        // If no keys found after filtering, show message
+                        if (filteredKeys.isEmpty() && metering.allCaptureKeys.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "No keys match filter \"$filterText\"",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        } else if (metering.allCaptureKeys.isEmpty()) {
                             item {
                                 Text(
                                     text = "No capture result keys available",
@@ -216,7 +263,33 @@ private fun CaptureRequestMenuPopup(
     onDismiss: () -> Unit
 ) {
     val introspection = rememberCaptureRequestIntrospection()
-    val captureOptions = remember { introspection.getAllCaptureRequestOptions() }
+    val captureOptions = remember {
+        val options = introspection.getAllCaptureRequestOptions()
+        android.util.Log.d("CaptureRequestMenuPopup", "Loaded ${options.size} capture options")
+        options.forEach { option ->
+            android.util.Log.d("CaptureRequestMenuPopup", "${option.displayName}: ${option.availableValues.size} values")
+        }
+        options
+    }
+
+    // Update capture options with current metering values
+    val updatedOptions = remember(currentMetering) {
+        // Debug: Show what keys are actually in the capture result
+        currentMetering?.let { metering ->
+            android.util.Log.d("CaptureRequestMenuPopup", "Available keys containing 'CONTROL': ${metering.debugKeys()}")
+            android.util.Log.d("CaptureRequestMenuPopup", "focusMode = ${metering.focusMode}, whiteBalanceMode = ${metering.whiteBalanceMode}, aeMode = ${metering.aeMode}")
+        }
+
+        captureOptions.map { option ->
+            val currentValue = when (option.key) {
+                "android.control.awbMode" -> currentMetering?.whiteBalanceMode
+                "android.control.afMode" -> currentMetering?.focusMode
+                "android.control.aeMode" -> currentMetering?.aeMode
+                else -> null
+            }
+            option.copy(currentValue = currentValue)
+        }
+    }
 
     Popup(
         onDismissRequest = onDismiss,
@@ -240,16 +313,26 @@ private fun CaptureRequestMenuPopup(
                     )
                 }
 
-                items(captureOptions.size) { index ->
-                    val option = captureOptions[index]
-                    CaptureRequestDropdown(
-                        option = option,
-                        onValueSelected = { selectedValue ->
-                            cameraManager?.let { manager ->
-                                option.updateFunction(manager, selectedValue)
+                if (updatedOptions.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No camera control options available",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    items(updatedOptions.size) { index ->
+                        val option = updatedOptions[index]
+                        CaptureRequestDropdown(
+                            option = option,
+                            onValueSelected = { selectedValue ->
+                                cameraManager?.let { manager ->
+                                    option.updateFunction(manager, selectedValue)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -287,8 +370,25 @@ private fun CaptureRequestDropdown(
     onValueSelected: (Int) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var selectedValue by remember {
+
+    // Persist UI state using option key as stable identifier
+    var selectedValue by remember(option.key) {
         mutableStateOf(option.currentValue ?: option.availableValues.firstOrNull()?.second)
+    }
+
+    // Sync UI with actual camera state when it changes
+    LaunchedEffect(option.currentValue) {
+        option.currentValue?.let { actualValue ->
+            if (actualValue != selectedValue) {
+                selectedValue = actualValue
+            }
+        }
+    }
+
+    // Debug logging
+    LaunchedEffect(option) {
+        android.util.Log.d("CaptureRequestDropdown",
+            "${option.displayName}: ${option.availableValues.size} values, current=$selectedValue")
     }
 
     Column {
@@ -336,57 +436,3 @@ private fun CaptureRequestDropdown(
 }
 
 
-@Preview
-@Composable
-fun DebugPopup(
-//    onDismiss: () -> Unit
-) {
-    Popup(
-        onDismissRequest = { },
-        properties = PopupProperties(focusable = true)
-    ) {
-        Card(
-            modifier = Modifier
-                .width(320.dp)
-                .heightIn(max = 500.dp)
-                .padding(8.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Header
-                Text(
-                    text = "DEBUG - Capture Results",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                // Scrollable Content
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 400.dp).fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    currentMetering?.let { metering ->
-                        // Show all dynamic capture keys from reflection
-
-                        item {
-                            Text(
-                                text = "No capture result keys available",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    } ?: item {
-                        Text(
-                            text = "No capture result data available",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
-        }
-    }
-}

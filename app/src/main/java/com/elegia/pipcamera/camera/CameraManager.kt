@@ -1,6 +1,7 @@
 package com.elegia.pipcamera.camera
 
 import androidx.annotation.OptIn
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
@@ -54,12 +55,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 @OptIn(ExperimentalCamera2Interop::class)
 class CameraManager {
     companion object {
         private const val TAG = "CLAUDE_CameraManager"
     }
+
+    // Background coroutine scope for image processing to avoid blocking main thread
+    private val imageProcessingScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default
+    )
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady
 
@@ -96,8 +106,6 @@ class CameraManager {
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording
 
-    private val _isAudioEnabled = MutableStateFlow(true)
-    val isAudioEnabled: StateFlow<Boolean> = _isAudioEnabled
 
     // Visual feedback states
     private val _snapshotFeedback = MutableStateFlow(false)
@@ -113,9 +121,10 @@ class CameraManager {
     private val _frameRotation = MutableStateFlow(0) // 0, 90, 180, 270 degrees
     val frameRotation: StateFlow<Int> = _frameRotation
 
-    // Audio processing pipeline
-    private val _isAudioProcessingEnabled = MutableStateFlow(false)
-    val isAudioProcessingEnabled: StateFlow<Boolean> = _isAudioProcessingEnabled
+    // Camera selection state
+    private val _isFrontCamera = MutableStateFlow(false)
+    val isFrontCamera: StateFlow<Boolean> = _isFrontCamera
+
 
     private var surfaceInstanceIndex = 0
     private fun getNextSurfaceIndex() = ++surfaceInstanceIndex
@@ -141,7 +150,11 @@ class CameraManager {
                 .also { builder ->
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
+                        // Optimized capture request options
                         .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, android.util.Range(30, 30)) // Lock to 30fps for consistency
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_CAPTURE_INTENT, CaptureRequest.CONTROL_CAPTURE_INTENT_PREVIEW)
+                        .setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON)
                         .setSessionCaptureCallback(CaptureController.captureCallback)
                 }
                 .build()
@@ -150,17 +163,35 @@ class CameraManager {
                     Log.d(TAG, "Surface_Preview: Surface provider set - index=$previewIndex")
                 }
 
-            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            cameraSelector = if (_isFrontCamera.value) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
 
             // Pre-allocate surfaces for performance
             initializeSurfaces()
 
+            // All surfaces are pre-allocated and cached in memory, but not bound
+            // Surface FABs control whether surfaces are bound to session
+            // Shutter buttons use already-cached surfaces instantly
+            _isAnalysisEnabled.value = false  // Enable when ML processing needed
+            _isSnapshotEnabled.value = false  // Enable when user toggles snapshot FAB
+            _isVideoEnabled.value = false     // Enable when user toggles video FAB
+
             try {
                 cameraProvider?.unbindAll()
+
+                // Validate preconditions before binding
+                require(lifecycleOwner != null) { "LifecycleOwner is null" }
+                require(cameraSelector != null) { "CameraSelector is null" }
+                require(preview != null) { "Preview is null" }
+
+                Log.d(TAG, "Binding camera with initial preview surface only")
                 val camera = cameraProvider?.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector!!,
-                    preview!!
+                    preview!!  // Start with just preview
                 )
 
                 // Get Camera2 control and info for interop
@@ -169,8 +200,38 @@ class CameraManager {
                     camera2Info = Camera2CameraInfo.from(it.cameraInfo)
                     CaptureController.setCamera2Control(camera2Control)
 
-                    // Query camera capabilities
+                    // Query camera capabilities and hardware level
                     _capabilities.value = CameraCapabilities.from(camera2Info)
+
+                    // Log hardware capabilities and apply optimizations based on hardware level
+                    val hardwareLevel: Int? = camera2Info?.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
+                    val isLegacy = hardwareLevel == android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY
+                    val isFull = hardwareLevel == android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL
+                    val isLevel3 = hardwareLevel == android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3
+
+                    // Check for concurrent camera support (API 28+)
+                    val capabilities: IntArray? = camera2Info?.getCameraCharacteristic(android.hardware.camera2.CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+                    val supportsConcurrent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        capabilities?.contains(
+                            android.hardware.camera2.CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA
+                        ) == true
+                    } else false
+
+                    // Check manual sensor capabilities
+                    val supportsManualSensor = capabilities?.contains(
+                        android.hardware.camera2.CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR
+                    ) == true
+
+                    // Check RAW capabilities
+                    val supportsRaw = capabilities?.contains(
+                        android.hardware.camera2.CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW
+                    ) == true
+
+                    Log.d(TAG, "Camera hardware: level=$hardwareLevel, legacy=$isLegacy, full=$isFull, level3=$isLevel3")
+                    Log.d(TAG, "Camera capabilities: concurrent=$supportsConcurrent, manual=$supportsManualSensor, raw=$supportsRaw")
+
+                    // Apply hardware-specific optimizations
+                    applyHardwareOptimizations(hardwareLevel, supportsManualSensor)
                 }
 
                 _isReady.value = true
@@ -179,13 +240,72 @@ class CameraManager {
                 // Start capture request streaming
                 CaptureController.startCaptureRequestStream()
             } catch (exc: Exception) {
-                // Handle camera binding failure
+                Log.e(TAG, "Failed to bind camera", exc)
+                _isReady.value = false
+                context?.let { ctx ->
+                    Toast.makeText(ctx, "Camera initialization failed: ${exc.message}", Toast.LENGTH_LONG).show()
+                }
+                // Reset state on failure
+                _camera.value = null
+                camera2Control = null
+                camera2Info = null
             }
         }, ContextCompat.getMainExecutor(previewView.context))
     }
 
+    private fun applyHardwareOptimizations(hardwareLevel: Int?, supportsManualSensor: Boolean) {
+        Log.d(TAG, "applyHardwareOptimizations: Applying optimizations based on hardware capabilities")
+
+        try {
+            val optimizations = CaptureRequestOptions.Builder()
+
+            // Apply optimizations based on hardware level
+            when (hardwareLevel) {
+                android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY -> {
+                    Log.d(TAG, "Legacy hardware detected - applying conservative settings")
+                    // For legacy devices, use simpler processing
+                    optimizations.setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
+                    optimizations.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF)
+                }
+
+                android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL,
+                android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3 -> {
+                    Log.d(TAG, "Full/Level3 hardware detected - enabling advanced features")
+                    // For full/level3 devices, enable advanced features
+                    optimizations.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
+                    optimizations.setCaptureRequestOption(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE_ON)
+
+                    if (supportsManualSensor) {
+                        Log.d(TAG, "Manual sensor control available - enabling advanced exposure control")
+                        // Enable advanced exposure control for manual sensor devices
+                        optimizations.setCaptureRequestOption(CaptureRequest.CONTROL_AE_ANTIBANDING_MODE, CaptureRequest.CONTROL_AE_ANTIBANDING_MODE_AUTO)
+                    }
+                }
+
+                else -> {
+                    Log.d(TAG, "Limited hardware detected - using balanced settings")
+                    // For limited devices, use balanced settings
+                    optimizations.setCaptureRequestOption(CaptureRequest.STATISTICS_FACE_DETECT_MODE, CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
+                }
+            }
+
+            // Apply thermal throttling prevention
+            optimizations.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, android.util.Range(30, 30))
+
+            // Optimize for low power consumption in continuous analysis
+            optimizations.setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_DISABLED)
+
+            // Apply the optimizations
+            camera2Control?.addCaptureRequestOptions(optimizations.build())
+            Log.d(TAG, "applyHardwareOptimizations: Hardware optimizations applied successfully")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "applyHardwareOptimizations: Failed to apply hardware optimizations", e)
+        }
+    }
+
     private fun initializeSurfaces() {
-        Log.d(TAG, "initializeSurfaces: Pre-allocating surfaces for performance")
+        Log.d(TAG, "initializeSurfaces: Pre-allocating optimized surfaces for performance")
         context?.let { ctx ->
             // Initialize ImageAnalysis for analysis
             val imageAnalysisIndex = getNextSurfaceIndex()
@@ -194,17 +314,26 @@ class CameraManager {
             imageAnalysis = ImageAnalysis.Builder()
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // Drop frames if processing is slow - optimal for real-time processing
+                .setTargetResolution(Size(1280, 720)) // Optimize resolution for ML processing
+                .setTargetRotation(Surface.ROTATION_0) // Explicit rotation handling
                 .also { builder ->
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
+                        // Optimized for analysis performance
                         .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_SCENE_MODE, CaptureRequest.CONTROL_SCENE_MODE_DISABLED)
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_EFFECT_MODE, CaptureRequest.CONTROL_EFFECT_MODE_OFF)
+                        .setCaptureRequestOption(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_OFF) // Faster processing
+                        .setCaptureRequestOption(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_OFF) // Reduce processing overhead
                         .setSessionCaptureCallback(CaptureController.captureCallback)
                 }
                 .build()
                 .also { analysis ->
                     analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
-                        processImageAnalysis(imageProxy)
-                        imageProxy.close()
+                        // Launch processing in background scope to avoid blocking main thread
+                        imageProcessingScope.launch {
+                            processImageAnalysis(imageProxy)
+                        }
                     }
                 }
             Log.d(TAG, "Surface_ImageAnalysis: Surface pre-allocated - index=$imageAnalysisIndex")
@@ -214,10 +343,13 @@ class CameraManager {
             Log.d(TAG, "Surface_ImageCapture: Pre-allocating surface - camid=back, usecase=ImageCapture, index=$imageCaptureIndex")
 
             imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY) // Optimize for speed over quality in ML context
+                .setTargetRotation(Surface.ROTATION_0) // Explicit rotation handling
                 .also { builder ->
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
                         .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                        .setCaptureRequestOption(CaptureRequest.JPEG_QUALITY, 85) // Balance quality vs speed
                         .setSessionCaptureCallback(CaptureController.captureCallback)
                 }
                 .build()
@@ -232,10 +364,12 @@ class CameraManager {
                 .build()
 
             videoCapture = VideoCapture.Builder(recorder)
+                .setTargetRotation(Surface.ROTATION_0) // Explicit rotation handling
                 .also { builder ->
                     Camera2Interop.Extender(builder)
                         .setSessionStateCallback(CaptureController.sessionStateCallback)
                         .setCaptureRequestOption(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON)
                         .setSessionCaptureCallback(CaptureController.captureCallback)
                 }
                 .build()
@@ -254,9 +388,9 @@ class CameraManager {
             return
         }
 
-        Log.d(TAG, "enableAnalysis: Enabling pre-allocated analysis surface")
+        Log.d(TAG, "enableAnalysis: Enabling analysis processing")
         _isAnalysisEnabled.value = true
-        rebindCamera()
+        rebindCameraWithActiveSurfaces()
         Log.d(TAG, "enableAnalysis: Analysis enabled successfully")
     }
 
@@ -266,57 +400,55 @@ class CameraManager {
             return
         }
 
-        Log.d(TAG, "disableAnalysis: Disabling analysis surface")
+        Log.d(TAG, "disableAnalysis: Disabling analysis processing")
         _isAnalysisEnabled.value = false
-        rebindCamera()
+        rebindCameraWithActiveSurfaces()
         Log.d(TAG, "disableAnalysis: Analysis disabled successfully")
     }
 
     fun enableSnapshot() {
         if (_isSnapshotEnabled.value) {
-            Log.w(TAG, "enableSnapshot: Already enabled")
+            Log.w(TAG, "enableSnapshot: Snapshot surface already bound")
             return
         }
 
-        Log.d(TAG, "enableSnapshot: Enabling pre-allocated snapshot surface")
+        Log.d(TAG, "enableSnapshot: Binding cached snapshot surface to camera session")
         _isSnapshotEnabled.value = true
-        rebindCamera()
-        Log.d(TAG, "enableSnapshot: Snapshot enabled successfully")
+        rebindCameraWithActiveSurfaces()
+        Log.d(TAG, "enableSnapshot: Snapshot surface bound - shutter ready")
     }
 
     fun disableSnapshot() {
         if (!_isSnapshotEnabled.value) {
-            Log.w(TAG, "disableSnapshot: Already disabled")
+            Log.w(TAG, "disableSnapshot: Snapshot surface not bound")
             return
         }
 
-        Log.d(TAG, "disableSnapshot: Disabling snapshot surface")
+        Log.d(TAG, "disableSnapshot: Unbinding snapshot surface from camera session")
         _isSnapshotEnabled.value = false
-        rebindCamera()
-        Log.d(TAG, "disableSnapshot: Snapshot disabled successfully")
+        rebindCameraWithActiveSurfaces()
+        Log.d(TAG, "disableSnapshot: Snapshot surface unbound - surface cached in memory")
     }
 
     fun enableVideo() {
         if (_isVideoEnabled.value) {
-            Log.w(TAG, "enableVideo: Already enabled")
+            Log.w(TAG, "enableVideo: Video surface already bound")
             return
         }
 
-        Log.d(TAG, "enableVideo: Enabling video surface")
-
-        // Just enable video surface - MediaRecorder will be prepared when recording starts
+        Log.d(TAG, "enableVideo: Binding cached video surface to camera session")
         _isVideoEnabled.value = true
-        rebindCamera()
-        Log.d(TAG, "enableVideo: Video enabled successfully")
+        rebindCameraWithActiveSurfaces()
+        Log.d(TAG, "enableVideo: Video surface bound - recording ready")
     }
 
     fun disableVideo() {
         if (!_isVideoEnabled.value) {
-            Log.w(TAG, "disableVideo: Already disabled")
+            Log.w(TAG, "disableVideo: Video surface not bound")
             return
         }
 
-        Log.d(TAG, "disableVideo: Disabling video surface")
+        Log.d(TAG, "disableVideo: Unbinding video surface from camera session")
 
         // Stop recording if currently recording
         if (_isRecording.value) {
@@ -324,19 +456,10 @@ class CameraManager {
         }
 
         _isVideoEnabled.value = false
-        rebindCamera()
-        Log.d(TAG, "disableVideo: Video disabled successfully")
+        rebindCameraWithActiveSurfaces()
+        Log.d(TAG, "disableVideo: Video surface unbound - surface cached in memory")
     }
 
-    fun enableAudio() {
-        Log.d(TAG, "enableAudio: Audio enabled")
-        _isAudioEnabled.value = true
-    }
-
-    fun disableAudio() {
-        Log.d(TAG, "disableAudio: Audio disabled")
-        _isAudioEnabled.value = false
-    }
 
     fun enableGL() {
         if (_isGLEnabled.value) {
@@ -344,10 +467,9 @@ class CameraManager {
             return
         }
 
-        Log.d(TAG, "enableGL: Enabling GL surface")
+        Log.d(TAG, "enableGL: Enabling GL processing")
         _isGLEnabled.value = true
-        rebindCamera()
-        Log.d(TAG, "enableGL: GL surface enabled successfully")
+        Log.d(TAG, "enableGL: GL processing enabled successfully")
     }
 
     fun disableGL() {
@@ -356,10 +478,29 @@ class CameraManager {
             return
         }
 
-        Log.d(TAG, "disableGL: Disabling GL surface")
+        Log.d(TAG, "disableGL: Disabling GL processing")
         _isGLEnabled.value = false
-        rebindCamera()
-        Log.d(TAG, "disableGL: GL surface disabled successfully")
+        Log.d(TAG, "disableGL: GL processing disabled successfully")
+    }
+
+    /**
+     * Toggle between front and back cameras
+     */
+    fun toggleCamera() {
+        val newIsFrontCamera = !_isFrontCamera.value
+        _isFrontCamera.value = newIsFrontCamera
+
+        Log.d(TAG, "toggleCamera: Switching to ${if (newIsFrontCamera) "front" else "back"} camera")
+
+        // Update camera selector
+        cameraSelector = if (newIsFrontCamera) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
+
+        // Rebind camera with new selector
+        rebindCameraWithActiveSurfaces()
     }
 
     fun rotateFrameClockwise() {
@@ -419,30 +560,19 @@ class CameraManager {
     }
 
 
-    fun enableAudioProcessing() {
-        if (_isAudioProcessingEnabled.value) {
-            Log.w(TAG, "enableAudioProcessing: Already enabled")
-            return
-        }
-
-        Log.d(TAG, "enableAudioProcessing: Enabling audio processing pipeline")
-        _isAudioProcessingEnabled.value = true
-        Log.d(TAG, "enableAudioProcessing: Audio processing enabled successfully")
-    }
-
-    fun disableAudioProcessing() {
-        if (!_isAudioProcessingEnabled.value) {
-            Log.w(TAG, "disableAudioProcessing: Already disabled")
-            return
-        }
-
-        Log.d(TAG, "disableAudioProcessing: Disabling audio processing pipeline")
-        _isAudioProcessingEnabled.value = false
-        Log.d(TAG, "disableAudioProcessing: Audio processing disabled successfully")
-    }
 
     fun takeSnapshot() {
-        if (!_isSnapshotEnabled.value || imageCapture == null || context == null) return
+        // Check if surface is allocated and bound (snapshot FAB was pressed)
+        if (!_isSnapshotEnabled.value) {
+            Log.w(TAG, "takeSnapshot: Snapshot surface not bound - press snapshot FAB first")
+            return
+        }
+        if (imageCapture == null || context == null) {
+            Log.e(TAG, "takeSnapshot: Camera not initialized")
+            return
+        }
+
+        Log.d(TAG, "takeSnapshot: Using cached snapshot surface")
 
         val outputFileOptions = ImageCapture.OutputFileOptions.Builder(
             File(context!!.getExternalFilesDir(null), "snapshot_${System.currentTimeMillis()}.jpg")
@@ -473,10 +603,21 @@ class CameraManager {
     }
 
     fun startVideoRecording() {
-        if (!_isVideoEnabled.value || _isRecording.value || context == null || videoCapture == null) {
-            Log.w(TAG, "startVideoRecording: Cannot start - videoEnabled=${_isVideoEnabled.value}, isRecording=${_isRecording.value}, context=${context != null}, videoCapture=${videoCapture != null}")
+        // Check if surface is allocated and bound (video FAB was pressed)
+        if (!_isVideoEnabled.value) {
+            Log.w(TAG, "startVideoRecording: Video surface not bound - press video FAB first")
             return
         }
+        if (_isRecording.value) {
+            Log.w(TAG, "startVideoRecording: Already recording")
+            return
+        }
+        if (context == null || videoCapture == null) {
+            Log.e(TAG, "startVideoRecording: Camera not initialized")
+            return
+        }
+
+        Log.d(TAG, "startVideoRecording: Using cached video surface")
 
         Log.d(TAG, "startVideoRecording: Starting video recording with CameraX VideoCapture")
 
@@ -488,14 +629,6 @@ class CameraManager {
 
             val pendingRecording = videoCapture!!.output
                 .prepareRecording(context!!, outputOptions)
-                .apply {
-                    if (_isAudioEnabled.value && ContextCompat.checkSelfPermission(context!!, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                        withAudioEnabled()
-                        Log.d(TAG, "startVideoRecording: Audio enabled for recording")
-                    } else {
-                        Log.d(TAG, "startVideoRecording: Audio disabled for recording (permission not granted or disabled)")
-                    }
-                }
 
             Log.d(TAG, "startVideoRecording: Starting recording with CameraX VideoCapture")
             activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(context!!)) { recordEvent ->
@@ -564,6 +697,21 @@ class CameraManager {
 
     private fun rebindCamera() {
         Log.d(TAG, "rebindCamera: Starting camera rebinding")
+
+        // Validate preconditions before rebinding
+        if (lifecycleOwner == null) {
+            Log.e(TAG, "rebindCamera: LifecycleOwner is null, cannot rebind")
+            return
+        }
+        if (cameraSelector == null) {
+            Log.e(TAG, "rebindCamera: CameraSelector is null, cannot rebind")
+            return
+        }
+        if (cameraProvider == null) {
+            Log.e(TAG, "rebindCamera: CameraProvider is null, cannot rebind")
+            return
+        }
+
         lifecycleOwner?.let { lifecycle ->
             cameraSelector?.let { selector ->
                 try {
@@ -621,16 +769,144 @@ class CameraManager {
                     }
                 } catch (exc: Exception) {
                     Log.e(TAG, "rebindCamera: Failed to rebind camera", exc)
+
+                    // Reset camera state on binding failure
+                    _camera.value = null
+                    camera2Control = null
+                    camera2Info = null
+                    _capabilities.value = null
+
+                    // Notify user of camera failure
+                    context?.let { ctx ->
+                        Toast.makeText(ctx, "Camera rebinding failed: ${exc.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
         Log.d(TAG, "rebindCamera: Camera rebinding completed")
     }
 
-    private fun processImageAnalysis(imageProxy: ImageProxy) {
-        // Send frames to AGSL shader through optimized channel
-        kotlinx.coroutines.runBlocking {
+    /**
+     * Smart camera rebinding - only bind surfaces that are cached and enabled
+     *
+     * Architecture:
+     * - All surfaces are pre-allocated and cached in memory during initialization
+     * - Surface FABs control whether cached surfaces are bound to camera session
+     * - Shutter buttons use already-bound surfaces instantly (no rebinding)
+     * - This reduces hardware strain and eliminates capture delays
+     */
+    private fun rebindCameraWithActiveSurfaces() {
+        Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding cached surfaces to camera session")
+
+        // Validate preconditions before rebinding
+        if (lifecycleOwner == null) {
+            Log.e(TAG, "rebindCameraWithActiveSurfaces: LifecycleOwner is null, cannot rebind")
+            return
+        }
+        if (cameraSelector == null) {
+            Log.e(TAG, "rebindCameraWithActiveSurfaces: CameraSelector is null, cannot rebind")
+            return
+        }
+        if (cameraProvider == null) {
+            Log.e(TAG, "rebindCameraWithActiveSurfaces: CameraProvider is null, cannot rebind")
+            return
+        }
+
+        lifecycleOwner?.let { lifecycle ->
+            cameraSelector?.let { selector ->
+                try {
+                    Log.d(TAG, "rebindCameraWithActiveSurfaces: Unbinding all existing use cases")
+                    cameraProvider?.unbindAll()
+
+                    // Build use case list with stable surface combinations
+                    val useCases = mutableListOf<UseCase>().apply {
+                        // 1. Preview (always bound for camera feed)
+                        preview?.let {
+                            add(it)
+                            Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding Preview surface")
+                        }
+
+                        // 2. ImageAnalysis (bind only if analysis FAB enabled)
+                        if (_isAnalysisEnabled.value && imageAnalysis != null) {
+                            add(imageAnalysis!!)
+                            Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding ImageAnalysis surface for ML processing")
+                        }
+
+                        // 3. ImageCapture (bind only if snapshot FAB enabled)
+                        if (_isSnapshotEnabled.value && imageCapture != null) {
+                            add(imageCapture!!)
+                            Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding cached ImageCapture surface - shutter ready")
+                        }
+
+                        // 4. VideoCapture (bind if video enabled OR snapshot needs companion for stability)
+                        val needsVideoForStability = _isSnapshotEnabled.value && !_isAnalysisEnabled.value
+                        if ((_isVideoEnabled.value || needsVideoForStability) && videoCapture != null) {
+                            add(videoCapture!!)
+                            if (_isVideoEnabled.value) {
+                                Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding cached VideoCapture surface - recording ready")
+                            } else {
+                                Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding VideoCapture as companion for ImageCapture stability (not for recording)")
+                            }
+                        }
+                    }
+
+                    Log.d(TAG, "rebindCameraWithActiveSurfaces: Binding ${useCases.size} active use cases")
+
+                    val cameraInstance = cameraProvider?.bindToLifecycle(
+                        lifecycle,
+                        selector,
+                        *useCases.toTypedArray()
+                    )
+
+                    _camera.value = cameraInstance
+
+                    cameraInstance?.let {
+                        Log.d(TAG, "rebindCameraWithActiveSurfaces: Camera session configured with cached surfaces")
+                        camera2Control = Camera2CameraControl.from(it.cameraControl)
+                        camera2Info = Camera2CameraInfo.from(it.cameraInfo)
+                        CaptureController.setCamera2Control(camera2Control)
+                        _capabilities.value = CameraCapabilities.from(camera2Info)
+                        Log.d(TAG, "rebindCameraWithActiveSurfaces: Camera2Interop controls configured - surfaces ready for instant use")
+                    }
+                } catch (exc: Exception) {
+                    Log.e(TAG, "rebindCameraWithActiveSurfaces: Failed to rebind camera", exc)
+
+                    // Reset camera state on binding failure
+                    _camera.value = null
+                    camera2Control = null
+                    camera2Info = null
+                    _capabilities.value = null
+
+                    // Notify user of camera failure
+                    context?.let { ctx ->
+                        Toast.makeText(ctx, "Camera rebinding failed: ${exc.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        Log.d(TAG, "rebindCameraWithActiveSurfaces: Camera session updated with bound surfaces - shutter/record buttons ready")
+    }
+
+    @OptIn(ExperimentalGetImage::class)
+    private suspend fun processImageAnalysis(imageProxy: ImageProxy) {
+        try {
+            // Check if analysis is enabled
+            if (!_isAnalysisEnabled.value) {
+                // Skip processing if analysis is disabled
+                return
+            }
+
+            // Validate image proxy before processing
+            if (imageProxy.image == null) {
+                Log.w(TAG, "processImageAnalysis: Received null image, skipping frame")
+                return
+            }
+
+            // Send frames to AGSL shader through optimized channel (already on background thread)
             FrameProcessor.processFrame(imageProxy)
+        } catch (e: Exception) {
+            Log.e(TAG, "processImageAnalysis: Error processing frame", e)
+            // Don't propagate exception - just log and continue with next frame
         }
     }
 
@@ -641,23 +917,68 @@ class CameraManager {
     fun shutdown() {
         Log.d(TAG, "shutdown: Shutting down camera manager")
 
-        // Stop any ongoing recording
-        if (_isRecording.value) {
-            stopVideoRecording()
-        }
+        try {
+            // Stop any ongoing recording gracefully
+            if (_isRecording.value) {
+                Log.d(TAG, "shutdown: Stopping active recording")
+                stopVideoRecording()
+            }
 
-        CaptureController.stopCaptureRequestStream()
-        FrameProcessor.cleanup()
-        cameraProvider?.unbindAll()
-        _camera.value = null
-        _isReady.value = false
-        _isAnalysisEnabled.value = false
-        _isSnapshotEnabled.value = false
-        _isVideoEnabled.value = false
-        _isRecording.value = false
-        _isGLEnabled.value = false
-        _isAudioProcessingEnabled.value = false
-        Log.d(TAG, "shutdown: Camera manager shutdown complete")
+            // Stop capture request streaming
+            Log.d(TAG, "shutdown: Stopping capture request stream")
+            CaptureController.stopCaptureRequestStream()
+
+            // Clean up frame processing
+            Log.d(TAG, "shutdown: Cleaning up frame processor")
+            FrameProcessor.cleanup()
+
+            // Cancel image processing coroutines
+            Log.d(TAG, "shutdown: Cancelling image processing coroutines")
+            imageProcessingScope.cancel()
+
+            // Unbind all camera use cases
+            Log.d(TAG, "shutdown: Unbinding all camera use cases")
+            cameraProvider?.unbindAll()
+
+            // Clear all references and reset states atomically
+            Log.d(TAG, "shutdown: Clearing all references and resetting state")
+            _camera.value = null
+            camera2Control = null
+            camera2Info = null
+            cameraProvider = null
+            preview = null
+            imageAnalysis = null
+            imageCapture = null
+            videoCapture = null
+            activeRecording = null
+            lifecycleOwner = null
+            cameraSelector = null
+            context = null
+
+            // Reset all state flags
+            _isReady.value = false
+            _isAnalysisEnabled.value = false
+            _isSnapshotEnabled.value = false
+            _isVideoEnabled.value = false
+            _isRecording.value = false
+            _isGLEnabled.value = false
+            _isPiPMode.value = false
+            _capabilities.value = null
+
+            // Reset visual feedback states
+            _snapshotFeedback.value = false
+            _recordingIndicator.value = false
+            _frameRotation.value = 0
+
+            Log.d(TAG, "shutdown: Camera manager shutdown complete")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "shutdown: Error during cleanup", e)
+            // Even if cleanup fails, ensure critical states are reset
+            _isReady.value = false
+            _isRecording.value = false
+            _camera.value = null
+        }
     }
 }
 

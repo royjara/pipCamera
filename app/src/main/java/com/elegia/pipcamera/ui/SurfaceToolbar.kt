@@ -35,7 +35,6 @@ fun SurfaceToolbar(
     isRecording: Boolean = false,
     isSnapshotEnabled: Boolean = false,
     isVideoEnabled: Boolean = false,
-    isAudioEnabled: Boolean = true,
     // NEW: Visual feedback parameters
     snapshotFeedback: Boolean = false,
     recordingIndicator: Boolean = false
@@ -128,26 +127,6 @@ fun SurfaceToolbar(
                             )
                         }
 
-                        FloatingActionButton(
-                            onClick = { if (isVideoEnabled) onSurfaceToggle("audio", !isAudioEnabled) },
-                            modifier = Modifier.size(30.dp),
-                            containerColor = if (!isVideoEnabled)
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                else if (isAudioEnabled)
-                                MaterialTheme.colorScheme.tertiary
-                                else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (!isVideoEnabled)
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                else if (isAudioEnabled)
-                                MaterialTheme.colorScheme.onTertiary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Audio Recording",
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
 
                         Spacer(modifier = Modifier.weight(1f))
 

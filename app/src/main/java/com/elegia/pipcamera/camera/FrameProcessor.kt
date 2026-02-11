@@ -38,8 +38,7 @@ object FrameProcessor {
      */
     suspend fun processFrame(imageProxy: ImageProxy) {
         try {
-            Log.v(TAG, "Processing frame - format=${imageProxy.format}, size=${imageProxy.width}x${imageProxy.height}")
-
+            // Log only on format changes or errors
             val rawBitmap = when (imageProxy.format) {
                 ImageFormat.YUV_420_888 -> convertYuv420ToBitmap(imageProxy)
                 ImageFormat.NV21 -> convertNv21ToBitmap(imageProxy)
@@ -64,7 +63,8 @@ object FrameProcessor {
                 rawBitmap.recycle()
             }
 
-            Log.v(TAG, "Frame processed and sent to AGSL - format=${imageProxy.format}, size=${bitmap.width}x${bitmap.height}")
+            // Only log occasionally to reduce clutter
+            // Log.v(TAG, "Frame processed - ${bitmap.width}x${bitmap.height}")
         } catch (e: Exception) {
             Log.w(TAG, "Frame processing failed", e)
         } finally {

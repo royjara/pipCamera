@@ -18,6 +18,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/LICENSE.md",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE.md",
+                "META-INF/NOTICE.txt",
+                "META-INF/LICENSE",
+                "META-INF/NOTICE",
+                "META-INF/DEPENDENCIES",
+                "META-INF/ASL2.0",
+                "META-INF/LGPL2.1",
+                "META-INF/AL2.0",
+                "META-INF/spring.schemas",
+                "META-INF/spring.handlers",
+                "META-INF/spring.tooling"
+            )
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -69,9 +89,20 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
-    // Weka ML library - commented out due to dependency conflicts
-    // TODO: Consider using Weka for Android or custom integration
-    // implementation("nz.ac.waikato.cms.weka:weka-stable:3.8.6")
+    // Weka ML library with dependency exclusions
+    implementation(libs.weka.stable) {
+        exclude(group = "com.github.vbmacher", module = "java-cup-runtime")
+        exclude(group = "com.github.vbmacher", module = "java-cup")
+        exclude(group = "jakarta.activation", module = "jakarta.activation-api")
+        exclude(group = "com.sun.activation", module = "jakarta.activation")
+        exclude(group = "org.glassfish.jaxb")
+        exclude(group = "com.sun.istack")
+        exclude(group = "jakarta.xml.bind")
+        exclude(group = "jakarta.xml.bind", module = "jakarta.xml.bind-api")
+        exclude(group = "org.glassfish.jaxb", module = "jaxb-runtime")
+        exclude(group = "org.glassfish.jaxb", module = "txw2")
+        exclude(group = "com.sun.istack", module = "istack-commons-runtime")
+    }
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

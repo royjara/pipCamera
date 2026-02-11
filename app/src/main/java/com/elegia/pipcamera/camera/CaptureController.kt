@@ -179,36 +179,60 @@ object CaptureController {
     }
 
     fun startCaptureRequestStream() {
-        Log.d(TAG, "startCaptureRequestStream: Starting capture request streaming")
+        Log.d(TAG, "startCaptureRequestStream: Starting reactive capture system")
         streamingJob?.cancel()
+
+        // Initialize reactive capture processor
+        ReactiveCaptureProcessor.initialize()
+
+        // Set up minimal periodic fallback (reduced frequency)
         streamingJob = scope.launch {
             var requestCount = 0
             while (isActive) {
-                // Example: Submit periodic capture requests
-                // This could be used for continuous autofocus, exposure adjustments, etc.
                 try {
+                    // Basic fallback request - much less frequent
                     val options = CaptureRequestOptions.Builder()
                         .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                         .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                         .build()
 
-                    camera2Control?.addCaptureRequestOptions(options)
+                    // Only emit basic requests as fallback
                     _captureRequests.emit(options)
 
                     requestCount++
-                    delay(1000) // Emit every second
+                    delay(10000) // Reduced to every 10 seconds (from 1 second)
                 } catch (e: Exception) {
-                    Log.e(TAG, "CaptureRequestStream: Error in streaming", e)
+                    Log.e(TAG, "CaptureRequestStream: Error in fallback streaming", e)
                 }
             }
-            Log.d(TAG, "CaptureRequestStream: Streaming stopped - total requests: $requestCount")
+            Log.d(TAG, "CaptureRequestStream: Fallback streaming stopped - total requests: $requestCount")
         }
     }
 
     fun stopCaptureRequestStream() {
         Log.d(TAG, "stopCaptureRequestStream: Stopping capture request streaming")
         streamingJob?.cancel()
+        ReactiveCaptureProcessor.cleanup()
         currentSession = null
+    }
+
+    /**
+     * Submit reactive capture request (called by ReactiveCaptureProcessor)
+     * This is the new reactive pathway that responds to ML results
+     */
+    fun submitReactiveCaptureRequest(options: CaptureRequestOptions) {
+        try {
+            camera2Control?.addCaptureRequestOptions(options)
+
+            // Emit to the shared flow for consumers
+            scope.launch {
+                _captureRequests.emit(options)
+            }
+
+            Log.d(TAG, "Reactive capture request submitted")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to submit reactive capture request", e)
+        }
     }
 
     // Convenience method for common capture request parameters

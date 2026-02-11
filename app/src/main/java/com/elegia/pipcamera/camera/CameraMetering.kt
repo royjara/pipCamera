@@ -4,27 +4,11 @@ import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.CaptureResult.Key
 
 data class CameraMetering(
-    val focusMode: Int? = null,
-    val focusState: Int? = null,
-    val exposureTime: Long? = null,
-    val iso: Int? = null,
-    val aperture: Float? = null,
-    val focusDistance: Float? = null,
-    val exposureCompensation: Int? = null,
-    val whiteBalanceMode: Int? = null,
     val allCaptureKeys: Map<String, String> = emptyMap()
 ) {
     companion object {
         fun from(result: CaptureResult): CameraMetering {
             return CameraMetering(
-                focusMode = result.get(CaptureResult.CONTROL_AF_MODE),
-                focusState = result.get(CaptureResult.CONTROL_AF_STATE),
-                exposureTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
-                iso = result.get(CaptureResult.SENSOR_SENSITIVITY),
-                aperture = result.get(CaptureResult.LENS_APERTURE),
-                focusDistance = result.get(CaptureResult.LENS_FOCUS_DISTANCE),
-                exposureCompensation = result.get(CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION),
-                whiteBalanceMode = result.get(CaptureResult.CONTROL_AWB_MODE),
                 allCaptureKeys = getAllCaptureKeys(result)
             )
         }
@@ -90,6 +74,56 @@ data class CameraMetering(
                 is LongArray -> value.contentToString()
                 is ByteArray -> value.contentToString()
                 else -> value.toString()
+            }
+        }
+    }
+
+    // Derived properties - extract from allCaptureKeys using correct field names
+    val focusMode: Int?
+        get() = allCaptureKeys["CONTROL_AF_MODE"]?.toIntOrNull()
+
+    val focusState: Int?
+        get() = allCaptureKeys["CONTROL_AF_STATE"]?.toIntOrNull()
+
+    val exposureTime: Long?
+        get() = allCaptureKeys["SENSOR_EXPOSURE_TIME"]?.toLongOrNull()
+
+    val iso: Int?
+        get() = allCaptureKeys["SENSOR_SENSITIVITY"]?.toIntOrNull()
+
+    val aperture: Float?
+        get() = allCaptureKeys["LENS_APERTURE"]?.toFloatOrNull()
+
+    val focusDistance: Float?
+        get() = allCaptureKeys["LENS_FOCUS_DISTANCE"]?.toFloatOrNull()
+
+    val exposureCompensation: Int?
+        get() = allCaptureKeys["CONTROL_AE_EXPOSURE_COMPENSATION"]?.toIntOrNull()
+
+    val whiteBalanceMode: Int?
+        get() = allCaptureKeys["CONTROL_AWB_MODE"]?.toIntOrNull()
+
+    val aeMode: Int?
+        get() = allCaptureKeys["CONTROL_AE_MODE"]?.toIntOrNull()
+
+    // Helper function to debug what keys are actually available
+    fun debugKeys(): String {
+        return allCaptureKeys.keys.filter {
+            it.contains("CONTROL_", ignoreCase = true) ||
+            it.contains("AWB", ignoreCase = true) ||
+            it.contains("AF", ignoreCase = true) ||
+            it.contains("AE", ignoreCase = true)
+        }.sorted().joinToString(", ")
+    }
+
+    // Filter capture keys by search term
+    fun getFilteredKeys(filter: String): Map<String, String> {
+        return if (filter.isBlank()) {
+            allCaptureKeys
+        } else {
+            allCaptureKeys.filterKeys { key ->
+                key.contains(filter, ignoreCase = true) ||
+                allCaptureKeys[key]?.contains(filter, ignoreCase = true) == true
             }
         }
     }

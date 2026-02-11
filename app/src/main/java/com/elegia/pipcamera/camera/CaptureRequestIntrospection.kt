@@ -24,10 +24,21 @@ data class CaptureRequestOption(
 class CaptureRequestIntrospection(private val context: Context) {
 
     fun getAWBModeOptions(cameraId: String = "0"): CaptureRequestOption {
-        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as AndroidCameraManager
-        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+        return try {
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as AndroidCameraManager
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
 
-        val availableModes = characteristics.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES) ?: intArrayOf()
+            val availableModes = characteristics.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES) ?: intArrayOf()
+            android.util.Log.d("CaptureRequestIntrospection", "AWB modes from HAL: ${availableModes.contentToString()}")
+
+            processAWBModes(availableModes)
+        } catch (e: Exception) {
+            android.util.Log.e("CaptureRequestIntrospection", "Failed to get AWB modes", e)
+            createEmptyAWBOption()
+        }
+    }
+
+    private fun processAWBModes(availableModes: IntArray): CaptureRequestOption {
 
         val modeMap = mapOf(
             CaptureRequest.CONTROL_AWB_MODE_OFF to "OFF",
@@ -47,11 +58,23 @@ class CaptureRequestIntrospection(private val context: Context) {
             }
         }
 
+        android.util.Log.d("CaptureRequestIntrospection", "Processed AWB options: ${availableOptions.size}")
+
         return CaptureRequestOption(
             key = "android.control.awbMode",
             displayName = "Auto White Balance Mode",
             availableValues = availableOptions,
             currentValue = null, // Will be set by caller if needed
+            updateFunction = { cameraManager, value -> cameraManager.updateAWBMode(value) }
+        )
+    }
+
+    private fun createEmptyAWBOption(): CaptureRequestOption {
+        return CaptureRequestOption(
+            key = "android.control.awbMode",
+            displayName = "Auto White Balance Mode",
+            availableValues = emptyList(),
+            currentValue = null,
             updateFunction = { cameraManager, value -> cameraManager.updateAWBMode(value) }
         )
     }
@@ -120,11 +143,21 @@ class CaptureRequestIntrospection(private val context: Context) {
      * Get all available capture request options for the device
      */
     fun getAllCaptureRequestOptions(cameraId: String = "0"): List<CaptureRequestOption> {
-        return listOf(
+        val allOptions = listOf(
             getAWBModeOptions(cameraId),
             getAFModeOptions(cameraId),
             getAEModeOptions(cameraId)
-        ).filter { it.availableValues.isNotEmpty() }
+        )
+
+        // Debug logging
+        allOptions.forEach { option ->
+            android.util.Log.d("CaptureRequestIntrospection", "${option.displayName}: ${option.availableValues.size} available values")
+            option.availableValues.forEach { (displayName, value) ->
+                android.util.Log.d("CaptureRequestIntrospection", "  - $displayName = $value")
+            }
+        }
+
+        return allOptions.filter { it.availableValues.isNotEmpty() }
     }
 }
 

@@ -1,13 +1,10 @@
 package com.elegia.pipcamera
 
-import android.app.PictureInPictureParams
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -24,6 +21,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         pipManager = PiPManager(this)
+
+        val shouldStartInPip = intent.getBooleanExtra("launch_pip", false)
+        if (shouldStartInPip) {
+            // We use post to ensure the activity is laid out before entering PiP
+            window.decorView.post {
+                pipManager.enterPiPMode()
+            }
+        }
 
         setContent {
             val isPiPMode by pipManager.isPiPMode.collectAsState()

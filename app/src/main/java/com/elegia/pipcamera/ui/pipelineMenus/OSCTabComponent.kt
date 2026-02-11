@@ -1,21 +1,17 @@
 package com.elegia.pipcamera.ui.pipelineMenus
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.*
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
+import com.elegia.pipcamera.osc.OSCStateHolder
 
 /**
  * OSC Configuration Tab - First tab for OSC settings
@@ -31,14 +27,11 @@ fun OSCTabComponent(
     onAddressChange: (String) -> Unit,
     onApplySettings: () -> Unit
 ) {
+    val context = LocalContext.current
+    val oscStateHolder = remember { OSCStateHolder.getInstance(context) }
     Column(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "OSC Configuration",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
 
         Text(
             text = "Configure Open Sound Control network destination:",
@@ -90,21 +83,7 @@ fun OSCTabComponent(
                     }
                 )
 
-                // Address Field
-                OutlinedTextField(
-                    value = oscAddress,
-                    onValueChange = onAddressChange,
-                    label = { Text("OSC Address") },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.LocationOn,
-                            contentDescription = null
-                        )
-                    }
-                )
-
-                // Button Row
+                               // Button Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -139,8 +118,7 @@ fun OSCTabComponent(
                     // Test Connection Button
                     Button(
                         onClick = {
-                            Log.i("OSCTab", "Testing OSC connection to $oscHost:$oscPort")
-                            sendOSCTestMessage(oscHost, oscPort, "/test", "connection_test")
+                            oscStateHolder.sendTestMessage()
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
@@ -168,27 +146,3 @@ fun OSCTabComponent(
     }
 }
 
-/**
- * Simple OSC test message sender
- * Sends test messages in the format: "/channel/address message content"
- */
-private fun sendOSCTestMessage(host: String, port: Int, channel: String, message: String) {
-    GlobalScope.launch(Dispatchers.IO) {
-        try {
-            val socket = DatagramSocket()
-            val address = InetAddress.getByName(host)
-
-            // Create simple text-based OSC message (not full OSC protocol, but compatible with our receiver)
-            val oscMessage = "$channel $message"
-            val messageBytes = oscMessage.toByteArray()
-
-            val packet = DatagramPacket(messageBytes, messageBytes.size, address, port)
-            socket.send(packet)
-            socket.close()
-
-            Log.i("OSCTab", "OSC test message sent successfully: $oscMessage")
-        } catch (e: Exception) {
-            Log.e("OSCTab", "Failed to send OSC test message: ${e.message}", e)
-        }
-    }
-}

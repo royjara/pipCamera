@@ -52,7 +52,6 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
     val metering by CaptureController.currentMetering.collectAsState()
     val camera by cameraManager.camera.collectAsState()
 
-    var showAudioDemo by remember { mutableStateOf(false) }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -148,13 +147,6 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
                             cameraManager.disableVideo()
                         }
                     }
-                    "audio" -> {
-                        if (enabled) {
-                            cameraManager.enableAudio()
-                        } else {
-                            cameraManager.disableAudio()
-                        }
-                    }
                     "gl" -> {
                         if (enabled) {
                             cameraManager.enableGL()
@@ -177,18 +169,9 @@ private fun CameraPreview(isPiPMode: Boolean = false) {
             isRecording = cameraManager.isRecording.collectAsState().value,
             isSnapshotEnabled = cameraManager.isSnapshotEnabled.collectAsState().value,
             isVideoEnabled = cameraManager.isVideoEnabled.collectAsState().value,
-            isAudioEnabled = cameraManager.isAudioEnabled.collectAsState().value,
             // NEW: Visual feedback states
             snapshotFeedback = cameraManager.snapshotFeedback.collectAsState().value,
             recordingIndicator = cameraManager.recordingIndicator.collectAsState().value
-        )
-    }
-
-    // Audio Demo Modal
-    if (showAudioDemo) {
-        AudioDemoModal(
-            onDismiss = { showAudioDemo = false },
-            cameraManager = cameraManager
         )
     }
 }
