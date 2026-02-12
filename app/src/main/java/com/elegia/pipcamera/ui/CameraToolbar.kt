@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
@@ -33,9 +34,10 @@ fun CameraToolbar(
     capabilities: CameraCapabilities?,
     currentMetering: CameraMetering?,
     isPiPMode: Boolean = false,
-    cameraManager: CameraManager? = null
+    cameraManager: CameraManager? = null,
+    showDebugPanel: Boolean = false,
+    onDebugToggle: () -> Unit = {}
 ) {
-    var showDebugScreen by remember { mutableStateOf(false) }
     var showMenuPopup by remember { mutableStateOf(false) }
     var showOSCConfig by remember { mutableStateOf(false) }
 
@@ -120,23 +122,32 @@ fun CameraToolbar(
                         else
                             MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        Icon(
-                            imageVector = if (cameraManager?.isFrontCamera?.collectAsState()?.value == true)
-                                Icons.Default.Face
-                            else
-                                Icons.Default.CameraRear,
-                            contentDescription = "Toggle Camera",
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = if (cameraManager?.isFrontCamera?.collectAsState()?.value == true)
+                                    Icons.Default.Face
+                                else
+                                    Icons.Default.CameraRear,
+                                contentDescription = "Toggle Camera",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = cameraManager?.currentCameraId?.collectAsState()?.value ?: "0",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp
+                            )
+                        }
                     }
 
                     // Right button - Debug toggle
                     FloatingActionButton(
-                        onClick = { showDebugScreen = !showDebugScreen },
+                        onClick = onDebugToggle,
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp),
-                        containerColor = if (showDebugScreen)
+                        containerColor = if (showDebugPanel)
                             MaterialTheme.colorScheme.tertiary
                         else
                             MaterialTheme.colorScheme.surfaceVariant
@@ -151,13 +162,6 @@ fun CameraToolbar(
             }
         }
 
-        // Debug screen popup - same styling as menu popup
-        if (showDebugScreen) {
-            DebugPopup(
-                currentMetering = currentMetering,
-                onDismiss = { showDebugScreen = false }
-            )
-        }
 
         // OSC Config Modal
         if (showOSCConfig) {
@@ -169,90 +173,6 @@ fun CameraToolbar(
     }
 }
 
-@Composable
-private fun DebugPopup(
-    currentMetering: CameraMetering?,
-    onDismiss: () -> Unit
-) {
-    var filterText by remember { mutableStateOf("") }
-    Popup(
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true)
-    ) {
-        Card(
-            modifier = Modifier
-//                .width(320.dp)
-
-                .heightIn(max = 500.dp)
-                .padding(8.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Header
-                Text(
-                    text = "DEBUG - Capture Results",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                // Filter input
-                OutlinedTextField(
-                    value = filterText,
-                    onValueChange = { filterText = it },
-                    label = { Text("Filter keys") },
-                    placeholder = { Text("e.g. AWB, FOCUS, EXPOSURE") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                // Scrollable Content
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 400.dp).fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    currentMetering?.let { metering ->
-                        val filteredKeys = metering.getFilteredKeys(filterText)
-
-                        // Show filtered capture keys
-                        filteredKeys.forEach { (keyName, value) ->
-                            item {
-                                CaptureKeyValueRow(keyName, value)
-                            }
-                        }
-
-                        // If no keys found after filtering, show message
-                        if (filteredKeys.isEmpty() && metering.allCaptureKeys.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "No keys match filter \"$filterText\"",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        } else if (metering.allCaptureKeys.isEmpty()) {
-                            item {
-                                Text(
-                                    text = "No capture result keys available",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-                    } ?: item {
-                        Text(
-                            text = "No capture result data available",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 
 @Composable
@@ -339,29 +259,6 @@ private fun CaptureRequestMenuPopup(
     }
 }
 
-@Composable
-private fun CaptureKeyValueRow(key: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = key,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(4f)
-        )
-        Box(modifier = Modifier.weight(3f)){
-            Text(
-                text = value,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 4.dp)
-            )
-
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

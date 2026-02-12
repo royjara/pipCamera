@@ -235,6 +235,9 @@ object CaptureController {
         }
     }
 
+    // Manual exposure control state
+    private var isManualExposureActive = false
+
     // Convenience method for common capture request parameters
     fun updateExposure(exposureCompensation: Int) {
         submitCaptureRequest(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposureCompensation)
@@ -246,5 +249,59 @@ object CaptureController {
 
     fun updateFlashMode(flashMode: Int) {
         submitCaptureRequest(CaptureRequest.CONTROL_AE_MODE, flashMode)
+    }
+
+    // Enhanced manual exposure control
+    fun setManualExposure(exposureTimeNs: Long, iso: Int? = null) {
+        Log.d(TAG, "setManualExposure: Setting manual exposure - time=${exposureTimeNs}ns, iso=$iso")
+        isManualExposureActive = true
+
+        val options = CaptureRequestOptions.Builder()
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposureTimeNs)
+
+        iso?.let {
+            options.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, it)
+        }
+
+        val requestOptions = options.build()
+        camera2Control?.addCaptureRequestOptions(requestOptions)
+
+        scope.launch {
+            _captureRequests.emit(requestOptions)
+        }
+    }
+
+    fun setManualISO(iso: Int) {
+        Log.d(TAG, "setManualISO: Setting manual ISO - iso=$iso")
+        isManualExposureActive = true
+
+        val options = CaptureRequestOptions.Builder()
+            .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+            .build()
+
+        camera2Control?.addCaptureRequestOptions(options)
+
+        scope.launch {
+            _captureRequests.emit(options)
+        }
+    }
+
+    fun returnToAutoExposure() {
+        if (isManualExposureActive) {
+            Log.d(TAG, "returnToAutoExposure: Returning to automatic exposure")
+            isManualExposureActive = false
+
+            val options = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                .build()
+
+            camera2Control?.addCaptureRequestOptions(options)
+
+            scope.launch {
+                _captureRequests.emit(options)
+            }
+        }
     }
 }

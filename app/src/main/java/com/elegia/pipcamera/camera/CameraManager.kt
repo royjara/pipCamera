@@ -38,6 +38,7 @@ import androidx.lifecycle.LifecycleOwner
 import android.content.Context
 import android.graphics.SurfaceTexture
 import android.hardware.display.DisplayManager
+import android.hardware.camera2.CameraManager as AndroidCameraManager
 import android.media.ImageReader
 import android.util.Log
 import android.util.Size
@@ -106,6 +107,8 @@ class CameraManager {
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording
 
+    private val _cameraError = MutableStateFlow<String?>(null)
+    val cameraError: StateFlow<String?> = _cameraError
 
     // Visual feedback states
     private val _snapshotFeedback = MutableStateFlow(false)
@@ -125,9 +128,71 @@ class CameraManager {
     private val _isFrontCamera = MutableStateFlow(false)
     val isFrontCamera: StateFlow<Boolean> = _isFrontCamera
 
+    // Available camera IDs and current selection
+    private var availableCameraIds: List<String> = emptyList()
+    private val _currentCameraIndex = MutableStateFlow(0)
+    val currentCameraIndex: StateFlow<Int> = _currentCameraIndex
+    private val _currentCameraId = MutableStateFlow("0")
+    val currentCameraId: StateFlow<String> = _currentCameraId
+
 
     private var surfaceInstanceIndex = 0
     private fun getNextSurfaceIndex() = ++surfaceInstanceIndex
+
+    private fun queryAndTestCameraIds(context: Context): Boolean {
+        return try {
+            val androidCameraManager = context.getSystemService(Context.CAMERA_SERVICE) as AndroidCameraManager
+            val candidateCameraIds = androidCameraManager.cameraIdList
+
+            Log.d(TAG, "queryAndTestCameraIds: Found ${candidateCameraIds.size} camera IDs: ${candidateCameraIds.contentToString()}")
+
+            if (candidateCameraIds.isEmpty()) {
+                Log.e(TAG, "queryAndTestCameraIds: No camera IDs found")
+                return false
+            }
+
+            // Test each camera and collect working ones
+            val workingCameraIds = mutableListOf<String>()
+
+            for ((index, cameraId) in candidateCameraIds.withIndex()) {
+                try {
+                    Log.d(TAG, "queryAndTestCameraIds: Testing camera ID: $cameraId (index $index)")
+                    val characteristics = androidCameraManager.getCameraCharacteristics(cameraId)
+
+                    // Get basic info to ensure camera is accessible
+                    val lensFacing = characteristics.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                    val hardwareLevel = characteristics.get(android.hardware.camera2.CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
+
+                    Log.d(TAG, "queryAndTestCameraIds: Camera $cameraId - lensFacing=$lensFacing, hardwareLevel=$hardwareLevel")
+
+                    // Camera is working, add to list
+                    workingCameraIds.add(cameraId)
+                    Log.i(TAG, "queryAndTestCameraIds: Successfully validated camera $cameraId")
+
+                } catch (e: Exception) {
+                    Log.w(TAG, "queryAndTestCameraIds: Failed to access camera $cameraId: ${e.message}")
+                    continue
+                }
+            }
+
+            if (workingCameraIds.isEmpty()) {
+                Log.e(TAG, "queryAndTestCameraIds: All ${candidateCameraIds.size} cameras failed validation")
+                return false
+            }
+
+            // Store working camera IDs and initialize to first camera
+            availableCameraIds = workingCameraIds
+            _currentCameraIndex.value = 0
+            _currentCameraId.value = workingCameraIds[0]
+
+            Log.i(TAG, "queryAndTestCameraIds: Found ${workingCameraIds.size} working cameras: $workingCameraIds")
+            return true
+
+        } catch (e: Exception) {
+            Log.e(TAG, "queryAndTestCameraIds: Error during camera query", e)
+            false
+        }
+    }
 
     fun initializeCamera(
         lifecycleOwner: LifecycleOwner,
@@ -137,6 +202,15 @@ class CameraManager {
         Log.d(TAG, "initializeCamera: Starting camera initialization")
         this.lifecycleOwner = lifecycleOwner
         this.context = previewView.context
+
+        // First, query available camera IDs and try to initialize with a working camera
+        if (!queryAndTestCameraIds(previewView.context)) {
+            Log.e(TAG, "initializeCamera: No working cameras found")
+            _cameraError.value = "No working cameras available"
+            _isReady.value = false
+            return
+        }
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(previewView.context)
 
         cameraProviderFuture.addListener({
@@ -241,6 +315,7 @@ class CameraManager {
                 CaptureController.startCaptureRequestStream()
             } catch (exc: Exception) {
                 Log.e(TAG, "Failed to bind camera", exc)
+                _cameraError.value = "Camera binding failed: ${exc.message}"
                 _isReady.value = false
                 context?.let { ctx ->
                     Toast.makeText(ctx, "Camera initialization failed: ${exc.message}", Toast.LENGTH_LONG).show()
@@ -484,23 +559,47 @@ class CameraManager {
     }
 
     /**
-     * Toggle between front and back cameras
+     * Cycle through available camera IDs
      */
     fun toggleCamera() {
-        val newIsFrontCamera = !_isFrontCamera.value
-        _isFrontCamera.value = newIsFrontCamera
-
-        Log.d(TAG, "toggleCamera: Switching to ${if (newIsFrontCamera) "front" else "back"} camera")
-
-        // Update camera selector
-        cameraSelector = if (newIsFrontCamera) {
-            CameraSelector.DEFAULT_FRONT_CAMERA
-        } else {
-            CameraSelector.DEFAULT_BACK_CAMERA
+        if (availableCameraIds.isEmpty()) {
+            Log.w(TAG, "toggleCamera: No available camera IDs")
+            return
         }
+
+        // Cycle to next camera ID
+        val nextIndex = (_currentCameraIndex.value + 1) % availableCameraIds.size
+        val nextCameraId = availableCameraIds[nextIndex]
+
+        Log.d(TAG, "toggleCamera: Cycling from camera ${_currentCameraId.value} (index ${_currentCameraIndex.value}) to camera $nextCameraId (index $nextIndex)")
+
+        _currentCameraIndex.value = nextIndex
+        _currentCameraId.value = nextCameraId
+
+        // Create camera selector for the specific camera ID
+        cameraSelector = CameraSelector.Builder()
+            .requireLensFacing(getCameraLensFacing(nextCameraId))
+            .build()
+
+        // Update front camera state for UI
+        _isFrontCamera.value = getCameraLensFacing(nextCameraId) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT
 
         // Rebind camera with new selector
         rebindCameraWithActiveSurfaces()
+    }
+
+    private fun getCameraLensFacing(cameraId: String): Int {
+        return try {
+            context?.let { ctx ->
+                val androidCameraManager = ctx.getSystemService(Context.CAMERA_SERVICE) as AndroidCameraManager
+                val characteristics = androidCameraManager.getCameraCharacteristics(cameraId)
+                characteristics.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING)
+                    ?: android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
+            } ?: android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
+        } catch (e: Exception) {
+            Log.w(TAG, "getCameraLensFacing: Failed to get lens facing for camera $cameraId", e)
+            android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK
+        }
     }
 
     fun rotateFrameClockwise() {
@@ -969,6 +1068,12 @@ class CameraManager {
             _snapshotFeedback.value = false
             _recordingIndicator.value = false
             _frameRotation.value = 0
+            _cameraError.value = null
+
+            // Reset camera ID state
+            availableCameraIds = emptyList()
+            _currentCameraIndex.value = 0
+            _currentCameraId.value = "0"
 
             Log.d(TAG, "shutdown: Camera manager shutdown complete")
 
