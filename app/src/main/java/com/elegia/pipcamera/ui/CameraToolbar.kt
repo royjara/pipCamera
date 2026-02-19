@@ -38,7 +38,7 @@ fun CameraToolbar(
     showDebugPanel: Boolean = false,
     onDebugToggle: () -> Unit = {}
 ) {
-    var showMenuPopup by remember { mutableStateOf(false) }
+    var showAnalyzerPopup by remember { mutableStateOf(false) }
     var showOSCConfig by remember { mutableStateOf(false) }
 
     if (!isPiPMode && capabilities != null) {
@@ -65,30 +65,19 @@ fun CameraToolbar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left button - Menu
-                    Box(modifier = Modifier.weight(1f)) {
-                        FloatingActionButton(
-                            onClick = { showMenuPopup = !showMenuPopup },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp),
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "Menu",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Menu popup
-                        if (showMenuPopup) {
-                            CaptureRequestMenuPopup(
-                                capabilities = capabilities,
-                                currentMetering = currentMetering,
-                                cameraManager = cameraManager,
-                                onDismiss = { showMenuPopup = false }
-                            )
-                        }
+//                    Box(modifier = Modifier.weight(1f)) {
+                    FloatingActionButton(
+                        onClick = { showAnalyzerPopup = !showAnalyzerPopup },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu",
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
                     // OSC Config button
@@ -134,7 +123,8 @@ fun CameraToolbar(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = cameraManager?.currentCameraId?.collectAsState()?.value ?: "0",
+                                text = cameraManager?.currentCameraId?.collectAsState()?.value
+                                    ?: "0",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 10.sp
                             )
@@ -162,6 +152,12 @@ fun CameraToolbar(
             }
         }
 
+        if (showAnalyzerPopup) {
+            AnalyzerModal(
+                onDismiss = { showAnalyzerPopup = false },
+                cameraManager = cameraManager
+            )
+        }
 
         // OSC Config Modal
         if (showOSCConfig) {
@@ -172,7 +168,6 @@ fun CameraToolbar(
         }
     }
 }
-
 
 
 @Composable
@@ -187,7 +182,10 @@ private fun CaptureRequestMenuPopup(
         val options = introspection.getAllCaptureRequestOptions()
         android.util.Log.d("CaptureRequestMenuPopup", "Loaded ${options.size} capture options")
         options.forEach { option ->
-            android.util.Log.d("CaptureRequestMenuPopup", "${option.displayName}: ${option.availableValues.size} values")
+            android.util.Log.d(
+                "CaptureRequestMenuPopup",
+                "${option.displayName}: ${option.availableValues.size} values"
+            )
         }
         options
     }
@@ -196,8 +194,14 @@ private fun CaptureRequestMenuPopup(
     val updatedOptions = remember(currentMetering) {
         // Debug: Show what keys are actually in the capture result
         currentMetering?.let { metering ->
-            android.util.Log.d("CaptureRequestMenuPopup", "Available keys containing 'CONTROL': ${metering.debugKeys()}")
-            android.util.Log.d("CaptureRequestMenuPopup", "focusMode = ${metering.focusMode}, whiteBalanceMode = ${metering.whiteBalanceMode}, aeMode = ${metering.aeMode}")
+            android.util.Log.d(
+                "CaptureRequestMenuPopup",
+                "Available keys containing 'CONTROL': ${metering.debugKeys()}"
+            )
+            android.util.Log.d(
+                "CaptureRequestMenuPopup",
+                "focusMode = ${metering.focusMode}, whiteBalanceMode = ${metering.whiteBalanceMode}, aeMode = ${metering.aeMode}"
+            )
         }
 
         captureOptions.map { option ->
@@ -284,8 +288,10 @@ private fun CaptureRequestDropdown(
 
     // Debug logging
     LaunchedEffect(option) {
-        android.util.Log.d("CaptureRequestDropdown",
-            "${option.displayName}: ${option.availableValues.size} values, current=$selectedValue")
+        android.util.Log.d(
+            "CaptureRequestDropdown",
+            "${option.displayName}: ${option.availableValues.size} values, current=$selectedValue"
+        )
     }
 
     Column {
@@ -300,7 +306,8 @@ private fun CaptureRequestDropdown(
             onExpandedChange = { expanded = !expanded }
         ) {
             OutlinedTextField(
-                value = option.availableValues.find { it.second == selectedValue }?.first ?: "Unknown",
+                value = option.availableValues.find { it.second == selectedValue }?.first
+                    ?: "Unknown",
                 onValueChange = { },
                 readOnly = true,
                 label = { Text(option.key) },

@@ -47,6 +47,7 @@ import android.widget.Toast
 import androidx.camera.core.ImageCaptureException
 import androidx.core.util.Consumer
 import java.io.File
+import com.elegia.pipcamera.mediapipe.MediaPipeManager
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.GlobalScope
@@ -202,6 +203,9 @@ class CameraManager {
         Log.d(TAG, "initializeCamera: Starting camera initialization")
         this.lifecycleOwner = lifecycleOwner
         this.context = previewView.context
+
+        // Initialize MediaPipe
+        MediaPipeManager.initialize(previewView.context)
 
         // First, query available camera IDs and try to initialize with a working camera
         if (!queryAndTestCameraIds(previewView.context)) {
@@ -1001,8 +1005,15 @@ class CameraManager {
                 return
             }
 
-            // Send frames to AGSL shader through optimized channel (already on background thread)
+            // Process frame for both AGSL shader and MediaPipe
+            // Both processors need the same frame, so we use FrameProcessor for the primary processing
+            // and MediaPipe will get frames through a different mechanism
+
+            // Always send frames to AGSL shader through optimized channel (already on background thread)
             FrameProcessor.processFrame(imageProxy)
+
+            // MediaPipe will process frames separately through FrameProcessor.frameFlow if enabled
+            // This avoids the ImageProxy single-use limitation
         } catch (e: Exception) {
             Log.e(TAG, "processImageAnalysis: Error processing frame", e)
             // Don't propagate exception - just log and continue with next frame
@@ -1011,6 +1022,28 @@ class CameraManager {
 
     fun updatePiPMode(isPiP: Boolean) {
         _isPiPMode.value = isPiP
+    }
+
+    fun enableMediaPipeProcessing(enabled: Boolean) {
+        MediaPipeManager.setEnabled(enabled)
+        Log.d(TAG, "enableMediaPipeProcessing: MediaPipe processing ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    fun updateMediaPipeSettings(
+        delegate: Int,
+        minFaceDetectionConfidence: Float,
+        minFaceTrackingConfidence: Float,
+        minFacePresenceConfidence: Float,
+        maxFaces: Int
+    ) {
+        MediaPipeManager.updateSettings(
+            delegate = delegate,
+            minFaceDetectionConfidence = minFaceDetectionConfidence,
+            minFaceTrackingConfidence = minFaceTrackingConfidence,
+            minFacePresenceConfidence = minFacePresenceConfidence,
+            maxFaces = maxFaces
+        )
+        Log.d(TAG, "updateMediaPipeSettings: Updated MediaPipe settings")
     }
 
     fun shutdown() {
@@ -1030,6 +1063,10 @@ class CameraManager {
             // Clean up frame processing
             Log.d(TAG, "shutdown: Cleaning up frame processor")
             FrameProcessor.cleanup()
+
+            // Clean up MediaPipe
+            Log.d(TAG, "shutdown: Cleaning up MediaPipe")
+            MediaPipeManager.cleanup()
 
             // Cancel image processing coroutines
             Log.d(TAG, "shutdown: Cancelling image processing coroutines")

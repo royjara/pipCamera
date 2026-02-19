@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("de.undercouch.download")
 }
 
 android {
@@ -68,6 +69,10 @@ android {
     ndkVersion = "29.0.14206865"
 }
 
+// import DownloadMPTasks task
+project.ext.set("ASSET_DIR", "$projectDir/src/main/assets")
+apply(from = "download_tasks.gradle")
+
 dependencies {
 
     implementation(libs.androidx.core.ktx)
@@ -88,6 +93,10 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+
+    // MediaPipe Library
+    implementation("com.google.mediapipe:tasks-vision:0.10.29")
 
     // Weka ML library with dependency exclusions
     implementation(libs.weka.stable) {
